@@ -8,6 +8,12 @@ FFM (`java.lang.foreign`) bridge · Maven build · `miniaudio` for audio output 
 
 See `C:\Users\Marto\.opencode\plan\guitar-tab-player-plan.md` for the full architecture plan.
 
+## License
+
+Copyright © 2026 run4o. Cloning and personal use of the app are permitted;
+modification, redistribution, and building upon this code require prior
+written permission. See [LICENSE](LICENSE) for the full terms.
+
 ## Project layout
 
 ```
