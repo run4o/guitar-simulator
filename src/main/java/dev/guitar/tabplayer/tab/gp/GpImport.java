@@ -320,7 +320,6 @@ public final class GpImport {
         bar.numerator = previous.numerator;
         bar.denominator = previous.denominator;
       }
-      System.out.println("[gpd] masterBar " + index + " pos=" + r.position());
       int flags = r.u1();
       if ((flags & 0x01) != 0) {
         bar.numerator = r.u1();
@@ -791,10 +790,19 @@ public final class GpImport {
         }
       }
 
-      StringBuilder[] lines = new StringBuilder[6];
+      StringBuilder out = new StringBuilder();
+      out.append("# GP import: ").append(title.isEmpty() ? "untitled" : title)
+          .append(artist.isEmpty() ? "" : " — " + artist)
+          .append(" · track: ").append(selected.name)
+          .append(" · ").append(bpm).append(" BPM\n");
+      for (String w : warnings) {
+        out.append("# ").append(w).append('\n');
+      }
+
       int barIndex = 0;
       while (barIndex < barCount) {
         int barsInLine = Math.min(4, barCount - barIndex);
+        StringBuilder[] lines = new StringBuilder[6];
         for (int s = 0; s < 6; s++) {
           lines[s] = new StringBuilder("EADGBe".charAt(s) + "|");
         }
@@ -806,10 +814,19 @@ public final class GpImport {
           for (int s = 0; s < 6; s++) {
             java.util.Arrays.fill(cells[s], ' ');
           }
+          // The tab parser treats every bar as 4 beats, so bars whose content
+          // exceeds 4 quarters (common in hand-made files) are scaled into the
+          // grid instead of dropping the excess notes.
+          double total = 0;
+          for (Beat beat : beats) {
+            total += durationQuarters(beat);
+          }
           double pos = 0;
           for (Beat beat : beats) {
             double quarters = durationQuarters(beat);
-            int col = (int) Math.round(pos * 4);
+            int col = total > 4.0
+                ? (int) Math.round(pos / total * 15)
+                : (int) Math.round(pos * 4);
             for (NoteEvent note : beat.notes) {
               if (note.stringIndex < 0 || note.stringIndex > 5) {
                 continue;
@@ -828,28 +845,13 @@ public final class GpImport {
             lines[s].append(cells[s]).append('|');
           }
         }
-        if (barIndex + barsInLine < barCount) {
-          for (int s = 0; s < 6; s++) {
-            lines[s].append('\n');
-          }
-        }
         for (int s = 0; s < 6; s++) {
-          lines[s].append('\n');
+          out.append(lines[s]).append('\n');
         }
+        out.append('\n');
         barIndex += barsInLine;
       }
 
-      StringBuilder out = new StringBuilder();
-      out.append("# GP import: ").append(title.isEmpty() ? "untitled" : title)
-          .append(artist.isEmpty() ? "" : " — " + artist)
-          .append(" · track: ").append(selected.name)
-          .append(" · ").append(bpm).append(" BPM\n");
-      for (String w : warnings) {
-        out.append("# ").append(w).append('\n');
-      }
-      for (int s = 5; s >= 0; s--) {
-        out.append(lines[s]);
-      }
       return new GpSong(out.toString().stripTrailing(), Math.max(40, Math.min(300, bpm)),
           title, selected.name, List.copyOf(warnings));
     }

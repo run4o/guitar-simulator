@@ -26,7 +26,7 @@ class GpImportTest {
   @Test
   void parsesMinimalGp5File() throws IOException {
     Path file = tempDir.resolve("test.gp5");
-    Files.write(file, minimalGp5());
+    Files.write(file, gp5Fixture(2, 0));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -42,9 +42,43 @@ class GpImportTest {
     assertTrue(ascii.startsWith("# GP import: Test Song"), ascii);
   }
 
+  @Test
+  void rendersAllBarsAcrossSystems() throws IOException {
+    // Regression: the generator used to overwrite every system with the last
+    // one, so songs with more than 4 bars collapsed to their final bars.
+    Path file = tempDir.resolve("sixbars.gp5");
+    Files.write(file, gp5Fixture(6, 0));
+
+    GpImport.GpSong song = GpImport.importFile(file);
+
+    long systemCount = song.ascii().lines().filter(l -> l.startsWith("E|")).count();
+    assertEquals(2, systemCount, "6 bars must render as two 4-bar systems:\n" + song.ascii());
+  }
+
+  @Test
+  void scalesOverfullBarInsteadOfDroppingNotes() throws IOException {
+    // Regression: bars whose beats exceed 4 quarters had all excess notes
+    // dropped; they must be scaled into the grid instead.
+    Path file = tempDir.resolve("overfull.gp5");
+    Files.write(file, gp5Fixture(1, 9));
+
+    GpImport.GpSong song = GpImport.importFile(file);
+
+    String eLine = song.ascii().lines().filter(l -> l.startsWith("e|")).findFirst().orElse("");
+    for (int fret = 1; fret <= 9; fret++) {
+      assertTrue(eLine.contains(Integer.toString(fret)),
+          "fret " + fret + " dropped from an overfull bar:\n" + song.ascii());
+    }
+  }
+
   /* ------------------------------------------------------------------ */
 
-  private static byte[] minimalGp5() throws IOException {
+  /**
+   * Builds a minimal GP5.1 file with `bars` measures and 1 track. When
+   * `overfullFrets` > 0, bar 0 contains that many quarter notes (frets 1..N
+   * on the high e string) whose total duration exceeds the 4/4 bar.
+   */
+  private static byte[] gp5Fixture(int bars, int overfullFrets) throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     DataOutputStream d = new DataOutputStream(out);
 
@@ -95,7 +129,7 @@ class GpImportTest {
     }
     d.write(new byte[4]);
     // counts
-    writeIntLE(d, 2); // bars
+    writeIntLE(d, bars); // bars
     writeIntLE(d, 1); // tracks
 
     // master bar 0: time signature 4/4 declared
@@ -106,11 +140,13 @@ class GpImportTest {
     d.writeByte(0); // alternate endings
     d.writeByte(0); // triplet feel
     d.writeByte(0); // unknown
-    // master bar 1: nothing declared
-    d.writeByte(0x00);
-    d.writeByte(0); // alternate endings
-    d.writeByte(0); // triplet feel
-    d.writeByte(0); // unknown
+    // master bars 1..n: nothing declared
+    for (int i = 1; i < bars; i++) {
+      d.writeByte(0x00);
+      d.writeByte(0); // alternate endings
+      d.writeByte(0); // triplet feel
+      d.writeByte(0); // unknown
+    }
 
     // track
     d.writeByte(0x00); // flags: not percussion
@@ -143,42 +179,59 @@ class GpImportTest {
 
     // bar 0, track 0: GP5 voice header + 2 voices
     d.writeByte(0); // voice header
-    writeIntLE(d, 3); // beats
-    // beat 1: quarter note, fret 3 on high e
-    d.writeByte(0x00); // flags
-    d.writeByte(0); // duration: quarter
-    d.writeByte(0x40); // string flags: string 0 (bit 6) = high e
-    d.writeByte(0x20); // note flags: type + fret
-    d.writeByte(1); // note type: regular
-    d.writeByte(3); // fret
-    d.writeByte(0); // note flags2
-    writeShortLE(d, 0); // beat flags2
-    // beat 2: eighth rest
-    d.writeByte(0x40); // flags: beat type present
-    d.writeByte(0x00); // type 0 = empty
-    d.writeByte(1); // duration: eighth
-    d.writeByte(0x00); // string flags: none
-    writeShortLE(d, 0); // beat flags2
-    // beat 3: sixteenth dead note on high e at 1.5 quarters -> column 6
-    d.writeByte(0x00);
-    d.writeByte(2); // duration: sixteenth
-    d.writeByte(0x40); // string flags
-    d.writeByte(0x20);
-    d.writeByte(3); // note type: dead
-    d.writeByte(0); // fret
-    d.writeByte(0); // note flags2
-    writeShortLE(d, 0); // beat flags2
-    writeIntLE(d, 0); // second voice: 0 beats
+    if (overfullFrets > 0) {
+      writeIntLE(d, overfullFrets); // beats
+      for (int i = 0; i < overfullFrets; i++) {
+        d.writeByte(0x00); // flags
+        d.writeByte(0); // duration: quarter
+        d.writeByte(0x40); // string flags: high e
+        d.writeByte(0x20); // note flags: type + fret
+        d.writeByte(1); // note type: regular
+        d.writeByte(i + 1); // fret
+        d.writeByte(0); // note flags2
+        writeShortLE(d, 0); // beat flags2
+      }
+      writeIntLE(d, 0); // second voice: 0 beats
+    } else {
+      writeIntLE(d, 3); // beats
+      // beat 1: quarter note, fret 3 on high e
+      d.writeByte(0x00); // flags
+      d.writeByte(0); // duration: quarter
+      d.writeByte(0x40); // string flags: string 0 (bit 6) = high e
+      d.writeByte(0x20); // note flags: type + fret
+      d.writeByte(1); // note type: regular
+      d.writeByte(3); // fret
+      d.writeByte(0); // note flags2
+      writeShortLE(d, 0); // beat flags2
+      // beat 2: eighth rest
+      d.writeByte(0x40); // flags: beat type present
+      d.writeByte(0x00); // type 0 = empty
+      d.writeByte(1); // duration: eighth
+      d.writeByte(0x00); // string flags: none
+      writeShortLE(d, 0); // beat flags2
+      // beat 3: sixteenth dead note on high e at 1.5 quarters -> column 6
+      d.writeByte(0x00);
+      d.writeByte(2); // duration: sixteenth
+      d.writeByte(0x40); // string flags
+      d.writeByte(0x20);
+      d.writeByte(3); // note type: dead
+      d.writeByte(0); // fret
+      d.writeByte(0); // note flags2
+      writeShortLE(d, 0); // beat flags2
+      writeIntLE(d, 0); // second voice: 0 beats
+    }
 
-    // bar 1, track 0: one empty voice + empty second voice
-    d.writeByte(0); // voice header
-    writeIntLE(d, 1); // beats
-    d.writeByte(0x40);
-    d.writeByte(0x00);
-    d.writeByte(0); // duration: quarter
-    d.writeByte(0x00); // string flags
-    writeShortLE(d, 0); // beat flags2
-    writeIntLE(d, 0); // second voice
+    // bars 1..n, track 0: one empty voice + empty second voice
+    for (int i = 1; i < bars; i++) {
+      d.writeByte(0); // voice header
+      writeIntLE(d, 1); // beats
+      d.writeByte(0x40);
+      d.writeByte(0x00);
+      d.writeByte(0); // duration: quarter
+      d.writeByte(0x00); // string flags
+      writeShortLE(d, 0); // beat flags2
+      writeIntLE(d, 0); // second voice
+    }
 
     d.flush();
     return out.toByteArray();
