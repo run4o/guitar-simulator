@@ -26,7 +26,7 @@ class GpImportTest {
   @Test
   void parsesMinimalGp5File() throws IOException {
     Path file = tempDir.resolve("test.gp5");
-    Files.write(file, gp5Fixture(2, 0));
+    Files.write(file, gp5Fixture(2, 0, null));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -47,7 +47,7 @@ class GpImportTest {
     // Regression: the generator used to overwrite every system with the last
     // one, so songs with more than 4 bars collapsed to their final bars.
     Path file = tempDir.resolve("sixbars.gp5");
-    Files.write(file, gp5Fixture(6, 0));
+    Files.write(file, gp5Fixture(6, 0, null));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -60,7 +60,7 @@ class GpImportTest {
     // Regression: bars whose beats exceed 4 quarters had all excess notes
     // dropped; they must be scaled into the grid instead.
     Path file = tempDir.resolve("overfull.gp5");
-    Files.write(file, gp5Fixture(1, 9));
+    Files.write(file, gp5Fixture(1, 9, null));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -71,14 +71,39 @@ class GpImportTest {
     }
   }
 
+  @Test
+  void separatesAdjacentChugNotes() throws IOException {
+    // Regression: 16th-note chugs landed on consecutive grid columns, merging
+    // into one giant digit run ("7000500070003") that overflowed the tab
+    // parser's fret parsing and aborted the whole import.
+    Path file = tempDir.resolve("chugs.gp5");
+    int[] chugs = {7, 0, 0, 0, 5, 0, 0, 0, 7, 0, 0, 0, 3, 0, 0, 0};
+    Files.write(file, gp5Fixture(2, 0, chugs));
+
+    GpImport.GpSong song = GpImport.importFile(file);
+
+    String ascii = song.ascii();
+    for (String line : ascii.split("\n", -1)) {
+      if (line.startsWith("#")) {
+        continue; // comment lines are not tab content ("120 BPM" etc.)
+      }
+      assertTrue(line.matches(".*[0-9]{3,}.*") == false,
+          "digit run longer than 2 merged into one fret token: " + line);
+    }
+    // the generated tab must compile without throwing
+    dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+  }
+
   /* ------------------------------------------------------------------ */
 
   /**
    * Builds a minimal GP5.1 file with `bars` measures and 1 track. When
    * `overfullFrets` > 0, bar 0 contains that many quarter notes (frets 1..N
-   * on the high e string) whose total duration exceeds the 4/4 bar.
+   * on the high e string) whose total duration exceeds the 4/4 bar. When
+   * `chugFrets` is non-null, bar 0 contains that many sixteenth notes with
+   * those frets on the low E string instead.
    */
-  private static byte[] gp5Fixture(int bars, int overfullFrets) throws IOException {
+  private static byte[] gp5Fixture(int bars, int overfullFrets, int[] chugFrets) throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     DataOutputStream d = new DataOutputStream(out);
 
@@ -179,7 +204,20 @@ class GpImportTest {
 
     // bar 0, track 0: GP5 voice header + 2 voices
     d.writeByte(0); // voice header
-    if (overfullFrets > 0) {
+    if (chugFrets != null) {
+      writeIntLE(d, chugFrets.length); // beats
+      for (int fret : chugFrets) {
+        d.writeByte(0x00); // flags
+        d.writeByte(2); // duration: sixteenth
+        d.writeByte(0x02); // string flags: string 5 (bit 1) = low E
+        d.writeByte(0x20); // note flags: type + fret
+        d.writeByte(1); // note type: regular
+        d.writeByte(fret); // fret
+        d.writeByte(0); // note flags2
+        writeShortLE(d, 0); // beat flags2
+      }
+      writeIntLE(d, 0); // second voice: 0 beats
+    } else if (overfullFrets > 0) {
       writeIntLE(d, overfullFrets); // beats
       for (int i = 0; i < overfullFrets; i++) {
         d.writeByte(0x00); // flags

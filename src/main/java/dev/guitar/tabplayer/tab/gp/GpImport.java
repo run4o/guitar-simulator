@@ -800,6 +800,18 @@ public final class GpImport {
       }
 
       int barIndex = 0;
+      // The tab grammar reads a run of adjacent digits as ONE fret, so notes
+      // on the same string must keep at least one empty column between them.
+      // Pass 1 finds the uniform bar width (widened when separation pushes
+      // glyphs past 16 columns); pass 2 renders. Resolution is deterministic,
+      // so both passes produce identical placements.
+      int barWidth = 16;
+      for (int bar = 0; bar < barCount; bar++) {
+        barWidth = Math.max(barWidth, resolveExtent(selected.bars.get(bar)));
+      }
+      if (barWidth > 16) {
+        warn("dense bars — grid widened to " + barWidth + " columns");
+      }
       while (barIndex < barCount) {
         int barsInLine = Math.min(4, barCount - barIndex);
         StringBuilder[] lines = new StringBuilder[6];
@@ -810,7 +822,7 @@ public final class GpImport {
           List<Beat> beats = selected.bars.size() > barIndex + b
               ? selected.bars.get(barIndex + b)
               : List.of();
-          char[][] cells = new char[6][16];
+          char[][] cells = new char[6][barWidth];
           for (int s = 0; s < 6; s++) {
             java.util.Arrays.fill(cells[s], ' ');
           }
@@ -822,6 +834,7 @@ public final class GpImport {
             total += durationQuarters(beat);
           }
           double pos = 0;
+          int[] prevEnd = new int[6];
           for (Beat beat : beats) {
             double quarters = durationQuarters(beat);
             int col = total > 4.0
@@ -832,12 +845,14 @@ public final class GpImport {
                 continue;
               }
               String glyph = note.dead ? "x" : Integer.toString(note.fret);
-              for (int k = 0; k < glyph.length() && col + k < 16; k++) {
-                cells[note.stringIndex][col + k] = glyph.charAt(k);
+              int start = prevEnd[note.stringIndex] > 0
+                  ? Math.max(col, prevEnd[note.stringIndex] + 1)
+                  : Math.max(col, 0);
+              for (int k = 0; k < glyph.length() && start + k < barWidth; k++) {
+                cells[note.stringIndex][start + k] = glyph.charAt(k);
               }
-              if (col + glyph.length() > 16) {
-                warn("dense bar — notes may overlap in the ASCII grid");
-              }
+              prevEnd[note.stringIndex] = Math.max(prevEnd[note.stringIndex],
+                  start + glyph.length());
             }
             pos += quarters;
           }
@@ -854,6 +869,41 @@ public final class GpImport {
 
       return new GpSong(out.toString().stripTrailing(), Math.max(40, Math.min(300, bpm)),
           title, selected.name, List.copyOf(warnings));
+    }
+
+    /**
+     * Pass-1 twin of the render loop: resolves note placements for one bar
+     * (pushing same-string notes apart) and returns the column just past the
+     * last glyph — the width the bar needs.
+     */
+    private int resolveExtent(List<Beat> beats) {
+      double total = 0;
+      for (Beat beat : beats) {
+        total += durationQuarters(beat);
+      }
+      double pos = 0;
+      int[] prevEnd = new int[6];
+      int extent = 0;
+      for (Beat beat : beats) {
+        double quarters = durationQuarters(beat);
+        int col = total > 4.0
+            ? (int) Math.round(pos / total * 15)
+            : (int) Math.round(pos * 4);
+        for (NoteEvent note : beat.notes) {
+          if (note.stringIndex < 0 || note.stringIndex > 5) {
+            continue;
+          }
+          String glyph = note.dead ? "x" : Integer.toString(note.fret);
+          int start = prevEnd[note.stringIndex] > 0
+              ? Math.max(col, prevEnd[note.stringIndex] + 1)
+              : Math.max(col, 0);
+          prevEnd[note.stringIndex] = Math.max(prevEnd[note.stringIndex],
+              start + glyph.length());
+          extent = Math.max(extent, start + glyph.length());
+        }
+        pos += quarters;
+      }
+      return extent;
     }
 
     private double durationQuarters(Beat beat) {
