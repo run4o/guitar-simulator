@@ -1,0 +1,351 @@
+/* Guitar Tab Player — studio console theme.
+ * Palette: primary #474847 (dark steel), accent #9B0808 (electric red),
+ * secondary #00BCD4 (cyan glow), background #0F111A (deep space),
+ * surface #1C1F2B (dark nebula), text #EFEFEF (bright silver).
+ */
+
+@font-face {
+    font-family: 'Bebas Neue';
+    src: url('fonts/BebasNeue-Regular.ttf');
+}
+
+@font-face {
+    font-family: 'Share Tech Mono';
+    src: url('fonts/ShareTechMono-Regular.ttf');
+}
+
+.root {
+    -fx-background-color: #0F111A;
+}
+
+/* ---- console panels ------------------------------------------------ */
+
+.panel {
+    -fx-background-color: #1C1F2B;
+    -fx-background-radius: 6;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 6;
+    -fx-padding: 8;
+}
+
+/* ---- header -------------------------------------------------------- */
+
+.plate-title {
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 26px;
+    -fx-text-fill: #EFEFEF;
+}
+
+.model-tag {
+    -fx-font-family: 'Share Tech Mono';
+    -fx-font-size: 12px;
+    -fx-text-fill: #56595F;
+}
+
+/* ---- LCD plates ---------------------------------------------------- */
+
+.lcd {
+    -fx-background-color: #0A0C14;
+    -fx-background-radius: 3;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Share Tech Mono';
+    -fx-font-size: 15px;
+    -fx-padding: 4 10 4 10;
+    -fx-alignment: center-left;
+}
+
+.lcd-dim {
+    -fx-text-fill: #56595F;
+}
+
+.status-lcd {
+    -fx-background-color: #0A0C14;
+    -fx-background-radius: 3;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-control-inner-background: #0A0C14;
+    -fx-text-fill: #8B8E99;
+    -fx-highlight-fill: rgba(0, 188, 212, 0.25);
+    -fx-font-family: 'Share Tech Mono';
+    -fx-font-size: 12px;
+}
+
+.status-lcd .scroll-bar,
+.crt .scroll-bar {
+    -fx-background-color: transparent;
+    -fx-pref-width: 8;
+}
+
+.status-lcd .scroll-bar .thumb,
+.crt .scroll-bar .thumb {
+    -fx-background-color: #2A2E40;
+    -fx-background-radius: 4;
+}
+
+.status-lcd .scroll-bar .increment-button,
+.status-lcd .scroll-bar .decrement-button,
+.status-lcd .scroll-bar .increment-arrow,
+.status-lcd .scroll-bar .decrement-arrow,
+.crt .scroll-bar .increment-button,
+.crt .scroll-bar .decrement-button,
+.crt .scroll-bar .increment-arrow,
+.crt .scroll-bar .decrement-arrow {
+    -fx-background-color: transparent;
+    -fx-shape: '';
+    -fx-padding: 0;
+}
+
+/* ---- CRT tab display ------------------------------------------------ */
+
+.crt {
+    -fx-control-inner-background: #0A0C14;
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Consolas';
+    -fx-font-size: 14px;
+    -fx-highlight-fill: rgba(0, 188, 212, 0.35);
+    -fx-highlight-text-fill: #EFEFEF;
+    -fx-background-color: #0A0C14;
+    -fx-background-radius: 4;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 4;
+}
+
+.crt .content {
+    -fx-background-color: #0A0C14;
+}
+
+/* ---- buttons -------------------------------------------------------- */
+
+.btn-steel {
+    -fx-background-color: #474847;
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 16px;
+    -fx-background-radius: 3;
+    -fx-padding: 6 14 4 14;
+    -fx-cursor: hand;
+}
+
+.btn-steel:hover {
+    -fx-background-color: #565757;
+}
+
+.btn-steel:pressed {
+    -fx-background-color: #3A3B3B;
+}
+
+.play-btn {
+    -fx-background-color: #474847;
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 22px;
+    -fx-background-radius: 24;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 24;
+    -fx-border-width: 1.5;
+    -fx-padding: 8 20 6 20;
+    -fx-cursor: hand;
+}
+
+.play-btn:hover {
+    -fx-background-color: #565757;
+}
+
+/* ---- LEDs ------------------------------------------------------------ */
+
+.led {
+    -fx-background-color: #262A38;
+    -fx-background-radius: 5;
+    -fx-min-width: 10;
+    -fx-min-height: 10;
+    -fx-max-width: 10;
+    -fx-max-height: 10;
+}
+
+.led-red {
+    -fx-background-color: #E01212;
+    -fx-effect: dropshadow(gaussian, #9B0808, 9, 0.5, 0, 0);
+}
+
+.led-cyan {
+    -fx-background-color: #00BCD4;
+    -fx-effect: dropshadow(gaussian, #00BCD4, 9, 0.5, 0, 0);
+}
+
+/* ---- faders ---------------------------------------------------------- */
+
+.fader-track {
+    -fx-background-color: #0A0C14;
+    -fx-background-radius: 3;
+    -fx-border-color: #33374A;
+    -fx-border-radius: 3;
+}
+
+.fader-fill {
+    -fx-background-color: #00BCD4;
+    -fx-background-radius: 3;
+    -fx-opacity: 0.9;
+}
+
+.fader-thumb {
+    -fx-background-color: #4A4B4B, #00BCD4;
+    -fx-background-insets: 0, 4 2;
+    -fx-background-radius: 3, 1;
+    -fx-border-color: #2A2E40;
+    -fx-border-width: 1;
+    -fx-border-radius: 3;
+}
+
+.channel-label {
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 14px;
+    -fx-text-fill: #8B8E99;
+    -fx-alignment: center;
+}
+
+/* ---- knobs ----------------------------------------------------------- */
+
+.knob-label {
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 13px;
+    -fx-text-fill: #8B8E99;
+    -fx-alignment: center;
+}
+
+/* ---- combo / spinner / checkbox -------------------------------------- */
+
+.combo-box {
+    -fx-background-color: #0A0C14;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Share Tech Mono';
+    -fx-font-size: 12px;
+    -fx-background-color: #0A0C14;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: #1C1F2B;
+    -fx-border-color: #2A2E40;
+}
+
+.combo-box-popup .list-cell {
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Share Tech Mono';
+    -fx-background-color: #1C1F2B;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: #262A38;
+}
+
+.combo-box .arrow,
+.combo-box .arrow-button {
+    -fx-background-color: transparent;
+    -fx-padding: 2 6;
+}
+
+.combo-box .arrow {
+    -fx-background-color: #56595F;
+    -fx-shape: "M 0 0 L 8 0 L 4 5 z";
+    -fx-scale-x: 0.7;
+    -fx-scale-y: 0.7;
+}
+
+.spinner {
+    -fx-background-color: #0A0C14;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+}
+
+.spinner .text-field {
+    -fx-background-color: transparent;
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Share Tech Mono';
+    -fx-font-size: 14px;
+}
+
+.spinner .increment-arrow,
+.spinner .decrement-arrow {
+    -fx-background-color: #56595F;
+}
+
+.check-box {
+    -fx-text-fill: #8B8E99;
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 15px;
+}
+
+.check-box .box {
+    -fx-background-color: #0A0C14;
+    -fx-border-color: #2A2E40;
+    -fx-background-radius: 2;
+    -fx-border-radius: 2;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #00BCD4;
+    -fx-border-color: #00BCD4;
+}
+
+.check-box:selected .mark {
+    -fx-background-color: #0F111A;
+}
+
+/* ---- separators ------------------------------------------------------ */
+
+.console-divider {
+    -fx-background-color: #2A2E40;
+    -fx-min-width: 1;
+    -fx-max-width: 1;
+}
+
+/* ---- title field + score scroll -------------------------------------- */
+
+.title-field {
+    -fx-background-color: #0A0C14;
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 18px;
+    -fx-background-radius: 3;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-padding: 4 8 2 8;
+}
+
+.score-scroll {
+    -fx-background-color: #0A0C14;
+    -fx-background-radius: 4;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 4;
+}
+
+.score-scroll .viewport {
+    -fx-background-color: #0A0C14;
+}
+
+.score-scroll .scroll-bar {
+    -fx-background-color: transparent;
+    -fx-pref-height: 8;
+}
+
+.score-scroll .scroll-bar .thumb {
+    -fx-background-color: #2A2E40;
+    -fx-background-radius: 4;
+}
+
+.score-scroll .scroll-bar .increment-button,
+.score-scroll .scroll-bar .decrement-button,
+.score-scroll .scroll-bar .increment-arrow,
+.score-scroll .scroll-bar .decrement-arrow {
+    -fx-background-color: transparent;
+    -fx-shape: '';
+    -fx-padding: 0;
+}

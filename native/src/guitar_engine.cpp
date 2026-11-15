@@ -1,0 +1,408 @@
+#include "guitar_engine.h"
+#include "plucked_string.h"
+#include "wav_writer.h"
+#include "dsp_chain.h"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cmath>
+#include <mutex>
+#include <vector>
+
+#define MINIAUDIO_IMPLEMENTATION
+#include "miniaudio.h"
+
+/*
+ * Phase 2 implementation: real-time synthesis engine.
+ *
+ * Threading model:
+ *  - Java pushes EngineEvents (with absolute sample-time timestamps) into a
+ *    lock-free SPSC ring buffer; it must never block the audio thread.
+ *  - The miniaudio callback is the sole consumer: for each frame it applies
+ *    every event whose sample_time has been reached, then renders one sample
+ *    of the 6-voice mix. This gives sample-accurate event timing.
+ *  - Immediate commands (pluck_string, ...) wrap push_event at the current
+ *    sample clock.
+ *  - Offline WAV rendering is a separate, deterministic path (Phase 1).
+ */
+
+namespace {
+
+constexpr const char* kEngineVersion = "0.3.0";
+constexpr int kStringCount = 6;
+constexpr int kMaxFret = 24;
+
+bool valid_string(int i) { return i >= 0 && i < kStringCount; }
+bool valid_command_type(int t) { return t >= GTE_EVENT_PLUCK && t <= GTE_EVENT_SET_TUNING; }
+
+struct EngineEvent {
+    uint64_t sample_time = 0;
+    int type = 0;
+    int string_index = 0;
+    int fret = 0;
+    float a = 0.0f;
+    float b = 0.0f;
+};
+
+/* Lock-free single-producer / single-consumer ring buffer (power-of-two size).
+   Producer: any Java thread (one at a time). Consumer: the audio callback. */
+template <typename T, size_t Capacity>
+class SpscRing {
+    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
+public:
+    bool push(const T& value) {
+        const size_t tail = tail_.load(std::memory_order_relaxed);
+        if (tail - head_.load(std::memory_order_acquire) >= Capacity) {
+            return false; // full
+        }
+        slots_[tail & (Capacity - 1)] = value;
+        tail_.store(tail + 1, std::memory_order_release);
+        return true;
+    }
+
+    /* Pops the next event only if its time has been reached (peek-then-consume). */
+    bool pop_if_reached(uint64_t now, T& out) {
+        const size_t head = head_.load(std::memory_order_relaxed);
+        if (head >= tail_.load(std::memory_order_acquire)) {
+            return false; // empty
+        }
+        const T& slot = slots_[head & (Capacity - 1)];
+        if (slot.sample_time > now) {
+            return false;
+        }
+        out = slot;
+        head_.store(head + 1, std::memory_order_release);
+        return true;
+    }
+
+    void clear() {
+        /* Only called when no producer/consumer is active (init/shutdown). */
+        head_.store(tail_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    }
+
+private:
+    std::array<T, Capacity> slots_{};
+    std::atomic<size_t> head_{0};
+    std::atomic<size_t> tail_{0};
+};
+
+constexpr size_t kEventQueueCapacity = 8192;
+
+/* Master FX parameters. Java writes these atomically; the audio thread reads
+   them once per callback block and the offline renderer snapshots them. */
+struct FxParams {
+    std::atomic<float> drive{0.0f};
+    std::atomic<float> tone{1.0f};
+    std::atomic<float> reverb_mix{0.0f};
+    std::atomic<float> master{1.0f};
+};
+FxParams g_fx;
+
+/* Per-string channel gains (faders) + output level envelope for the VU meter. */
+struct ChannelState {
+    std::array<std::atomic<float>, kStringCount> gains;
+    std::atomic<float> level{0.0f};
+    ChannelState() {
+        for (auto& g : gains) {
+            g.store(1.0f, std::memory_order_relaxed);
+        }
+    }
+};
+ChannelState g_ch;
+
+/* Peak-envelope update: fast attack, slow ~2 s release at 44.1 kHz. */
+inline void update_level(float sample) {
+    const float peak = std::fabs(sample);
+    float level = g_ch.level.load(std::memory_order_relaxed);
+    level = std::max(peak, level * 0.99995f);
+    g_ch.level.store(std::min(level, 1.5f), std::memory_order_relaxed);
+}
+
+struct EngineState {
+    std::mutex control_mutex; // serializes init/shutdown/start
+
+    float sample_rate = 44100.0f;
+    int buffer_frames = 512;
+    bool initialized = false;
+
+    std::atomic<uint64_t> frames_rendered{0};
+    SpscRing<EngineEvent, kEventQueueCapacity> queue;
+
+    float open_frequencies[kStringCount] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f };
+    gte::PluckedString strings[kStringCount];
+    gte::FxDsp fx_l; // per-channel FX keeps the per-string pan spread
+    gte::FxDsp fx_r;
+
+    ma_device device{};
+    bool device_ready = false;
+    bool started = false;
+};
+
+EngineState g;
+
+/* Fixed per-string stereo spread: low strings left, high strings right. */
+constexpr float kPanLeft[kStringCount]  = { 0.75f, 0.65f, 0.55f, 0.45f, 0.35f, 0.25f };
+constexpr float kPanRight[kStringCount] = { 0.25f, 0.35f, 0.45f, 0.55f, 0.65f, 0.75f };
+
+void apply_command(gte::PluckedString* strings, float open_frequencies[], int type,
+                   int string_index, int fret, float a, float b) {
+    if (!valid_string(string_index)) return;
+    gte::PluckedString& v = strings[string_index];
+    switch (type) {
+        case GTE_EVENT_PLUCK:      v.pluck(fret, a, b != 0.0f); break;
+        case GTE_EVENT_LEGATO:     v.legato(fret); break;
+        case GTE_EVENT_BEND:       v.bend(a); break;
+        case GTE_EVENT_MUTE:       v.mute(); break;
+        case GTE_EVENT_SET_TUNING:
+            open_frequencies[string_index] = a;
+            v.set_open_frequency(a);
+            break;
+        default: break;
+    }
+}
+
+void apply_event(EngineState& s, const EngineEvent& ev) {
+    apply_command(s.strings, s.open_frequencies, ev.type, ev.string_index, ev.fret, ev.a, ev.b);
+}
+
+/* Snapshot FX params from the atomics; called once per callback block. */
+void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
+    const float drive = g_fx.drive.load(std::memory_order_relaxed);
+    const float tone = g_fx.tone.load(std::memory_order_relaxed);
+    const float mix = g_fx.reverb_mix.load(std::memory_order_relaxed);
+    const float master = g_fx.master.load(std::memory_order_relaxed);
+    if (drive != cached[0] || tone != cached[1] || mix != cached[2] || master != cached[3]) {
+        fx.setParams(drive, tone, mix, master);
+        cached[0] = drive;
+        cached[1] = tone;
+        cached[2] = mix;
+        cached[3] = master;
+    }
+}
+
+void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, ma_uint32 frames) {
+    auto* out = static_cast<float*>(output);
+    EngineState& s = g;
+
+    const uint64_t base = s.frames_rendered.load(std::memory_order_relaxed);
+    EngineEvent ev;
+
+    static thread_local float fx_cached[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    sync_fx_params(s.fx_l, fx_cached);
+    sync_fx_params(s.fx_r, fx_cached);
+
+    for (ma_uint32 i = 0; i < frames; ++i) {
+        while (s.queue.pop_if_reached(base + i, ev)) {
+            apply_event(s, ev);
+        }
+        float leftSum = 0.0f;
+        float rightSum = 0.0f;
+        for (int k = 0; k < kStringCount; ++k) {
+            const float v = s.strings[k].render_sample()
+                    * g_ch.gains[k].load(std::memory_order_relaxed);
+            leftSum += v * kPanLeft[k];
+            rightSum += v * kPanRight[k];
+        }
+        const float outL = s.fx_l.process(leftSum * 0.45f);
+        const float outR = s.fx_r.process(rightSum * 0.45f);
+        out[2 * i]     = outL;
+        out[2 * i + 1] = outR;
+        update_level(std::max(std::fabs(outL), std::fabs(outR)));
+    }
+    s.frames_rendered.store(base + frames, std::memory_order_release);
+}
+
+void destroy_device(EngineState& s) {
+    if (s.device_ready) {
+        if (s.started) {
+            ma_device_stop(&s.device);
+            s.started = false;
+        }
+        ma_device_uninit(&s.device);
+        s.device_ready = false;
+    }
+}
+
+} // namespace
+
+GTE_EXPORT bool guitar_engine_init(int sample_rate, int buffer_frames) {
+    if (sample_rate <= 0 || buffer_frames <= 0) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(g.control_mutex);
+    destroy_device(g);
+    g.sample_rate = static_cast<float>(sample_rate);
+    g.buffer_frames = buffer_frames;
+    for (int i = 0; i < kStringCount; ++i) {
+        g.strings[i] = gte::PluckedString(g.open_frequencies[i]);
+        g.strings[i].prepare(g.sample_rate);
+    }
+    g.fx_l.prepare(g.sample_rate);
+    g.fx_r.prepare(g.sample_rate);
+    g.queue.clear();
+    g.frames_rendered.store(0, std::memory_order_relaxed);
+    g.initialized = true;
+    return true;
+}
+
+GTE_EXPORT bool guitar_engine_start(void) {
+    std::lock_guard<std::mutex> lock(g.control_mutex);
+    if (!g.initialized) {
+        return false;
+    }
+    if (g.started) {
+        return true;
+    }
+    if (!g.device_ready) {
+        ma_device_config config = ma_device_config_init(ma_device_type_playback);
+        config.playback.format = ma_format_f32;
+        config.playback.channels = 2;
+        config.sampleRate = static_cast<ma_uint32>(g.sample_rate);
+        config.periodSizeInFrames = static_cast<ma_uint32>(g.buffer_frames);
+        config.periods = 2;
+        config.dataCallback = data_callback;
+        if (ma_device_init(nullptr, &config, &g.device) != MA_SUCCESS) {
+            return false;
+        }
+        g.device_ready = true;
+    }
+    if (ma_device_start(&g.device) != MA_SUCCESS) {
+        return false;
+    }
+    g.started = true;
+    return true;
+}
+
+GTE_EXPORT void guitar_engine_shutdown(void) {
+    std::lock_guard<std::mutex> lock(g.control_mutex);
+    destroy_device(g);
+    g.initialized = false;
+}
+
+GTE_EXPORT uint64_t guitar_engine_sample_clock(void) {
+    return g.frames_rendered.load(std::memory_order_acquire);
+}
+
+GTE_EXPORT const char* guitar_engine_version(void) {
+    return kEngineVersion;
+}
+
+GTE_EXPORT bool guitar_engine_push_event(uint64_t sample_time, int type, int string_index,
+                                         int fret, float a, float b) {
+    if (!g.initialized || !valid_command_type(type)) return false;
+    if (type != GTE_EVENT_SET_TUNING && !valid_string(string_index)) return false;
+    if (type == GTE_EVENT_PLUCK && (fret < 0 || fret > kMaxFret)) return false;
+    if (type == GTE_EVENT_LEGATO && (fret < 0 || fret > kMaxFret)) return false;
+    EngineEvent ev;
+    ev.sample_time = sample_time;
+    ev.type = type;
+    ev.string_index = string_index;
+    ev.fret = fret;
+    ev.a = a;
+    ev.b = b;
+    return g.queue.push(ev);
+}
+
+GTE_EXPORT void guitar_engine_set_string_tuning(int string_index, float open_frequency_hz) {
+    if (!g.initialized || !valid_string(string_index) || open_frequency_hz <= 0.0f) return;
+    guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_SET_TUNING,
+                             string_index, 0, open_frequency_hz, 0.0f);
+}
+
+GTE_EXPORT void guitar_engine_pluck_string(int string_index, int fret, float velocity, bool palm_mute) {
+    guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_PLUCK,
+                             string_index, fret, velocity, palm_mute ? 1.0f : 0.0f);
+}
+
+GTE_EXPORT void guitar_engine_legato_fret(int string_index, int target_fret) {
+    guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_LEGATO,
+                             string_index, target_fret, 0.0f, 0.0f);
+}
+
+GTE_EXPORT void guitar_engine_bend_string(int string_index, float semitones) {
+    guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_BEND,
+                             string_index, 0, semitones, 0.0f);
+}
+
+GTE_EXPORT void guitar_engine_mute_string(int string_index) {
+    guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_MUTE,
+                             string_index, 0, 0.0f, 0.0f);
+}
+
+GTE_EXPORT void guitar_engine_set_fx(float drive, float tone, float reverb_mix, float master_gain) {
+    g_fx.drive.store(drive, std::memory_order_relaxed);
+    g_fx.tone.store(tone, std::memory_order_relaxed);
+    g_fx.reverb_mix.store(reverb_mix, std::memory_order_relaxed);
+    g_fx.master.store(master_gain, std::memory_order_relaxed);
+}
+
+GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
+                                                     float duration_seconds,
+                                                     const GteRenderCommand* commands,
+                                                     int command_count) {
+    if (!path_utf8 || duration_seconds <= 0.0f || (commands == nullptr && command_count > 0)) {
+        return false;
+    }
+
+    const float fs = g.sample_rate;
+    if (fs <= 0.0f) return false;
+
+    gte::PluckedString strings[kStringCount];
+    float offline_tunings[kStringCount];
+    float offline_gains[kStringCount];
+    for (int i = 0; i < kStringCount; ++i) {
+        offline_tunings[i] = g.open_frequencies[i];
+        offline_gains[i] = g_ch.gains[i].load(std::memory_order_relaxed);
+        strings[i] = gte::PluckedString(offline_tunings[i]);
+        strings[i].prepare(fs);
+    }
+
+    std::vector<GteRenderCommand> sorted;
+    if (commands != nullptr && command_count > 0) {
+        sorted.assign(commands, commands + command_count);
+        std::stable_sort(sorted.begin(), sorted.end(),
+                         [](const GteRenderCommand& a, const GteRenderCommand& b) {
+                             return a.time_offset < b.time_offset;
+                         });
+    }
+
+    gte::WavWriter wav(path_utf8, static_cast<int>(fs));
+    if (!wav.ok()) return false;
+
+    // Offline path uses the same FX as the live path (current params snapshot).
+    gte::FxDsp fx;
+    fx.prepare(fs);
+    {
+        float cached[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+        sync_fx_params(fx, cached);
+    }
+
+    const int64_t total_samples = static_cast<int64_t>(duration_seconds * fs);
+    size_t next_command = 0;
+    for (int64_t n = 0; n < total_samples; ++n) {
+        const float t = static_cast<float>(n) / fs;
+        while (next_command < sorted.size() && sorted[next_command].time_offset <= t) {
+            const GteRenderCommand& c = sorted[next_command++];
+            apply_command(strings, offline_tunings, c.type, c.string_index, c.fret, c.a, c.b);
+        }
+        float sum = 0.0f;
+        for (int i = 0; i < kStringCount; ++i) {
+            sum += strings[i].render_sample() * offline_gains[i];
+        }
+        const float out = fx.process(sum * 0.45f);
+        update_level(out);
+        wav.write(out);
+    }
+    return true;
+}
+
+GTE_EXPORT void guitar_engine_set_string_gain(int string_index, float gain) {
+    if (valid_string(string_index)) {
+        g_ch.gains[string_index].store(std::clamp(gain, 0.0f, 2.0f), std::memory_order_relaxed);
+    }
+}
+
+GTE_EXPORT float guitar_engine_get_level(void) {
+    return g_ch.level.load(std::memory_order_acquire);
+}

@@ -1,0 +1,16 @@
+# Maven
+target/
+
+# CMake / native build output
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Toolchain (kept outside the project: D:\Tools)
