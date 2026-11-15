@@ -71,7 +71,7 @@ public class ScoreView extends Canvas {
   }
 
   public void setScrollY(double scrollY) {
-    layout = ScoreLayout.compute(layout.barCount, layout.contentSeconds,
+    layout = ScoreLayout.compute(layout.barCount, layout.barSeconds,
         layout.canvasWidth, layout.canvasHeight, scrollY);
     draw();
   }
@@ -94,32 +94,30 @@ public class ScoreView extends Canvas {
     return cursorSeconds < 0 ? -1 : layout.rowForTime(cursorSeconds);
   }
 
+  /** The active geometry (package-visible for tests). */
+  ScoreLayout layout() {
+    return layout;
+  }
+
   /** Virtual content height of the whole song (drives the scroll range). */
   public double totalHeight() {
     return layout.totalHeight();
-  }
-
-  /** Scroll offset that centers the cursor's row. */
+  }  /** Scroll offset that centers the cursor's row. */
   public double scrollYForCursor() {
     return cursorSeconds < 0 ? 0 : layout.scrollYForRow(layout.rowForTime(cursorSeconds));
   }
 
   private void refreshLayout() {
     int bars = timeline == null ? 0 : timeline.barTimes().size();
-    double seconds = contentSecondsOf(timeline);
-    layout = ScoreLayout.compute(bars, seconds, getWidth(), getHeight(), layout.scrollY);
-  }
-
-  /**
-   * Display length: up to shortly after the last event — the ring-out tail
-   * is dead space.
-   */
-  private static double contentSecondsOf(TabParser.TabTimeline timeline) {
-    if (timeline == null || timeline.commands().isEmpty()) {
-      return 1.0;
+    // the TRUE bar length from the compiled bars — never derive it from the
+    // display length (which includes the ring-out tail and would drift the
+    // event -> bar mapping along the song)
+    double barSeconds = 1.0;
+    if (timeline != null && !timeline.barTimes().isEmpty()) {
+      TabParser.BarTime bt = timeline.barTimes().get(0);
+      barSeconds = bt.endSeconds() - bt.startSeconds();
     }
-    double lastEvent = timeline.commands().get(timeline.commands().size() - 1).timeOffset();
-    return Math.min(timeline.durationSeconds(), lastEvent + 0.8);
+    layout = ScoreLayout.compute(bars, barSeconds, getWidth(), getHeight(), layout.scrollY);
   }
 
   private void onClick(MouseEvent e) {
@@ -191,6 +189,7 @@ public class ScoreView extends Canvas {
     // bar separators + beat grid
     for (int bar = firstBar; bar <= lastBar; bar++) {
       double startX = layout.xForCol(layout.colForBar(bar));
+      double barPps = layout.barPx / barSecondsPx(bar); // px per second in this bar
       g.setStroke(EDGE);
       g.setLineWidth(1);
       g.strokeLine(startX, yTop + HEADER_H, startX, rowBottom);
@@ -198,7 +197,7 @@ public class ScoreView extends Canvas {
       double beat = (bt.endSeconds() - bt.startSeconds()) / 4.0;
       g.setStroke(GRID);
       for (int k = 1; k < 4; k++) {
-        double bx = startX + (bt.startSeconds() + k * beat - bt.startSeconds()) * barSecondsPx(bar);
+        double bx = startX + k * beat * barPps;
         g.strokeLine(bx, yTop + HEADER_H, bx, rowBottom);
       }
     }
@@ -230,13 +229,14 @@ public class ScoreView extends Canvas {
         continue;
       }
       TabParser.BarTime bt = timeline.barTimes().get(bar);
+      double barPps = layout.barPx / barSecondsPx(bar); // px per second in this bar
       double x = layout.xForCol(layout.colForBar(bar))
-          + (cmd.timeOffset() - bt.startSeconds()) * barSecondsPx(bar);
+          + (cmd.timeOffset() - bt.startSeconds()) * barPps;
       if (x >= w - EDGE_L) {
         continue;
       }
       double laneCenter = yTop + HEADER_H + PADDING + cmd.stringIndex() * lh + lh / 2.0;
-      double cellW = cellWidth(cmd, bar, bt, timesByString);
+      double cellW = cellWidth(cmd, bt, barPps, timesByString);
       double cellH = Math.min(lh - 4, 20.0);
       switch (cmd.type()) {
         case RenderCommandType.PLUCK -> {
@@ -325,7 +325,7 @@ public class ScoreView extends Canvas {
    * Cell width for a note on its string: runs to the next note on that string
    * within the bar (so digits never overlap), clamped to a sane range.
    */
-  private double cellWidth(RenderCommand cmd, int bar, TabParser.BarTime bt,
+  private double cellWidth(RenderCommand cmd, TabParser.BarTime bt, double barPps,
       java.util.Map<Integer, java.util.List<Double>> timesByString) {
     double next = bt.endSeconds();
     java.util.List<Double> times = timesByString.get(cmd.stringIndex());
@@ -338,7 +338,7 @@ public class ScoreView extends Canvas {
       }
     }
     double gapSeconds = next - cmd.timeOffset();
-    return Math.max(10, Math.min(26, gapSeconds * barSecondsPx(bar) - 2));
+    return Math.max(10, Math.min(26, gapSeconds * barPps - 2));
   }
 
   /**

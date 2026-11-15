@@ -33,6 +33,11 @@ Rules every contributor (human or AI agent) must follow when changing this proje
 One change = one test cycle = one commit. Do not batch unrelated changes into
 a single commit.
 
+**Always work on and push to `master`** — commits land on the local master
+branch and are pushed to `origin master`. Never commit to or push side
+branches unless explicitly asked; if a push to master is rejected by branch
+protection, stop and report instead of creating a side branch.
+
 ## Environment
 
 - Portable toolchain is set up by `scripts\dev-env.cmd` (JDK 26, Maven,

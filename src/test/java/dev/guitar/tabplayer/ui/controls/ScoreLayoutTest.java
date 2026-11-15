@@ -83,9 +83,9 @@ class ScoreLayoutTest {
 
   @Test
   void cursorTimeResolvesToRowAndX() {
-    // 8 bars over 32 seconds -> 4 s per bar; with 6 columns, bars 0..5 are
-    // row 0 and bar 6 starts row 1
-    ScoreLayout layout = ScoreLayout.compute(8, 32, 1200, 400, 0);
+    // 8 bars, 4 s per bar; with 6 columns, bars 0..5 are row 0 and bar 6
+    // starts row 1
+    ScoreLayout layout = ScoreLayout.compute(8, 4, 1200, 400, 0);
     assertEquals(0, layout.rowForTime(2));
     assertEquals(1, layout.rowForTime(24.5)); // bar 6 -> row 1
     // x inside the second bar of row 0: past the first column's width

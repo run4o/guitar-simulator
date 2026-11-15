@@ -18,7 +18,6 @@ public final class ScoreLayout {
   private static final double RIGHT_PAD = 12;
 
   public final int barCount;
-  public final double contentSeconds;
   public final double barSeconds;
   public final int barsPerRow;
   public final double barPx;
@@ -26,10 +25,10 @@ public final class ScoreLayout {
   public final double canvasHeight;
   public final double scrollY;
 
-  private ScoreLayout(int barCount, double contentSeconds, double canvasWidth,
+  private ScoreLayout(int barCount, double barSeconds, double canvasWidth,
       double canvasHeight, double scrollY) {
     this.barCount = barCount;
-    this.contentSeconds = contentSeconds;
+    this.barSeconds = barSeconds;
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
     this.scrollY = scrollY;
@@ -40,12 +39,11 @@ public final class ScoreLayout {
     int floorCols = Math.min(MIN_COLS, Math.max(1, barCount));
     this.barsPerRow = Math.max(floorCols, Math.min(cap, (int) (usable / MIN_BAR_PX)));
     this.barPx = usable / barsPerRow;
-    this.barSeconds = barCount <= 0 ? 1.0 : contentSeconds / barCount;
   }
 
-  public static ScoreLayout compute(int barCount, double contentSeconds, double canvasWidth,
+  public static ScoreLayout compute(int barCount, double barSeconds, double canvasWidth,
       double canvasHeight, double scrollY) {
-    return new ScoreLayout(barCount, contentSeconds, canvasWidth, canvasHeight, scrollY);
+    return new ScoreLayout(barCount, barSeconds, canvasWidth, canvasHeight, scrollY);
   }
 
   public int rowCount() {
