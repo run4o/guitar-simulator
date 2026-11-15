@@ -43,6 +43,16 @@ a single commit.
 - Maven is invoked as `mvn -B` via the wrappers; the project is non-modular
   (classpath launcher, main class `dev.guitar.tabplayer.ui.UiLauncher`).
 
+## Never leak local machine details into the repository
+
+Committed files (code, docs, comments, scripts, configs) must never contain
+machine-specific paths or personal details: absolute paths like
+`C:\Users\<name>\...`, `.opencode` session/plan files, the developer's
+username, or any other local-environment layout. Use portable forms instead
+(`%USERPROFILE%\...`, repo-relative paths) or leave the detail out entirely.
+Before committing, check for these; this has been violated before and had to
+be scrubbed from history.
+
 ## Project layout
 
 ```

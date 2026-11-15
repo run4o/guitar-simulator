@@ -6,8 +6,6 @@ via physical modeling (Karplus-Strong) — no pre-recorded samples.
 **Stack:** Java 26 + JavaFX (UI, later phase) · C++20 + CMake (synthesis engine) ·
 FFM (`java.lang.foreign`) bridge · Maven build · `miniaudio` for audio output (Phase 2).
 
-See `C:\Users\Marto\.opencode\plan\guitar-tab-player-plan.md` for the full architecture plan.
-
 ## License
 
 Copyright © 2026 run4o. Cloning and personal use of the app are permitted;
@@ -30,7 +28,7 @@ build/native/           CMake build output (DLL) — not committed
 
 ## Toolchain (portable, installed outside the project)
 
-- JDK 26: `C:\Users\Marto\.jdks\openjdk-26.0.2`
+- JDK 26: `%USERPROFILE%\.jdks\openjdk-26.0.2`
 - Maven 3.9.16: `D:\Tools\apache-maven-3.9.16`
 - MinGW-w64 (GCC 16.2, includes CMake 4.4 + Ninja): `D:\Tools\mingw64`
 
