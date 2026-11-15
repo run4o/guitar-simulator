@@ -27,7 +27,7 @@ public class PlayerApp extends Application {
     Parent root = loader.load();
     RootController rootController = loader.getController();
 
-    Scene scene = new Scene(root, 1220, 720);
+    Scene scene = new Scene(root, 1220, 880);
     scene.getStylesheets().add(getClass().getResource("/dev/guitar/tabplayer/ui/theme.css").toExternalForm());
     stage.setTitle("Guitar Tab Player");
     stage.setScene(scene);
