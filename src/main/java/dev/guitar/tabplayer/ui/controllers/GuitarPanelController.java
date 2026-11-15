@@ -83,6 +83,11 @@ public class GuitarPanelController {
     return bpmSpinner.getValue();
   }
 
+  /** Project load: set the spinner through its value factory. */
+  public void setBpm(int bpm) {
+    bpmSpinner.getValueFactory().setValue(Math.max(40, Math.min(300, bpm)));
+  }
+
   public Tuning getTuning() {
     return tuningBox.getValue();
   }
@@ -94,6 +99,13 @@ public class GuitarPanelController {
         tuningBox.getSelectionModel().select(t);
         break;
       }
+    }
+  }
+
+  /** Project load: select by enum. */
+  public void selectTuning(Tuning tuning) {
+    if (tuning != null && !tuning.equals(tuningBox.getValue())) {
+      tuningBox.getSelectionModel().select(tuning);
     }
   }
 }

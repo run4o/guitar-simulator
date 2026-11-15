@@ -256,29 +256,25 @@ public class TabPanelController {
     ctx.status("BAR CLEARED");
   }
 
+  /** Public entry for menu wiring: swap the whole tab text and recompile. */
+  public void replaceTabText(String newText) {
+    setTabText(newText);
+  }
+
   /**
-   * Loads an ASCII tab file, replacing the current text (menu wiring is
-   * future work; kept reachable for the file-open flow).
+   * Loads an ASCII tab file, replacing the current text (wired from the
+   * app-header File menu).
    */
-  public void loadFile(javafx.stage.Window window) {
-    javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
-    chooser.setTitle("Open ASCII tab");
-    chooser.getExtensionFilters().addAll(new javafx.stage.FileChooser.ExtensionFilter("Tab files",
-            "*.txt", "*.tab"),
-        new javafx.stage.FileChooser.ExtensionFilter("All files", "*.*"));
-    var file = chooser.showOpenDialog(window);
-    if (file == null) {
-      return;
-    }
+  public void openTab(java.nio.file.Path file) {
     try {
       if (playback.isPlaying()) {
         playback.stop();
       }
-      sourcePanelController.setText(Files.readString(file.toPath()));
+      sourcePanelController.setText(Files.readString(file));
       selFirst = selLast = -1;
       scorePanelController.setSelection(-1, -1);
       compileCurrent();
-      ctx.status("LOADED " + file.getName().toUpperCase());
+      ctx.status("LOADED " + file.getFileName().toString().toUpperCase());
     } catch (IOException e) {
       ctx.status("FAILED TO LOAD: " + e.getMessage().toUpperCase());
     }

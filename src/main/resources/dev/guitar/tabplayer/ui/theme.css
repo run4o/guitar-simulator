@@ -270,6 +270,55 @@
     -fx-background-color: #262A38;
 }
 
+/* ---- app header menu bar ----------------------------------------------- */
+
+.menu-bar {
+    -fx-background-color: transparent;
+    -fx-padding: 2 4 0 4;
+}
+
+.menu-bar .label {
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 15px;
+    -fx-text-fill: #8B8E99;
+}
+
+.menu {
+    -fx-background-color: transparent;
+    -fx-padding: 2 6 4 6;
+    -fx-background-radius: 3;
+}
+
+.menu:hover,
+.menu:showing {
+    -fx-background-color: #262A38;
+}
+
+.context-menu {
+    -fx-background-color: #1C1F2B;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-padding: 4;
+}
+
+.menu-item .label {
+    -fx-text-fill: #EFEFEF;
+    -fx-font-family: 'Share Tech Mono';
+    -fx-font-size: 12px;
+}
+
+.menu-item:hover,
+.menu-item:focused {
+    -fx-background-color: #262A38;
+}
+
+/* ---- tuner panel -------------------------------------------------------- */
+
+.tuner-readout {
+    -fx-font-size: 13px;
+}
+
 .check-box {
     -fx-text-fill: #8B8E99;
     -fx-font-family: 'Bebas Neue';

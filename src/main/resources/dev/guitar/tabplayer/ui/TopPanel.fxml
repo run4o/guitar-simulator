@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?import javafx.scene.layout.VBox?>
 
-<!-- Top strip: the app header plate above the transport panel. -->
+<!-- Top strip: the app header (with the File menu) above the transport panel. -->
 <VBox fx:controller="dev.guitar.tabplayer.ui.controllers.TopPanelController" spacing="8"
       xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
   <fx:include fx:id="appHeaderPanel" source="AppHeaderPanel.fxml"/>

@@ -9,7 +9,13 @@ import javafx.fxml.FXML;
 public class TopPanelController {
 
   @FXML
+  private AppHeaderPanelController appHeaderPanelController;
+  @FXML
   private TransportPanelController transportPanelController;
+
+  public AppHeaderPanelController appHeader() {
+    return appHeaderPanelController;
+  }
 
   public TransportPanelController transport() {
     return transportPanelController;

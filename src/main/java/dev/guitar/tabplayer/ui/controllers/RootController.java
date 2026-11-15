@@ -1,6 +1,7 @@
 package dev.guitar.tabplayer.ui.controllers;
 
 import dev.guitar.tabplayer.app.AppContext;
+import dev.guitar.tabplayer.app.ProjectFile;
 import dev.guitar.tabplayer.model.Tuning;
 import dev.guitar.tabplayer.playback.PlaybackService;
 import dev.guitar.tabplayer.tab.TabParser;
@@ -29,6 +30,8 @@ public class RootController {
   private SoundPanelController soundPanelController;
   @FXML
   private VolumePanelController volumePanelController;
+  @FXML
+  private TunerPanelController tunerPanelController;
 
   private AppContext ctx;
   private PlaybackService playback;
@@ -60,11 +63,16 @@ public class RootController {
     guitarPanelController.init(ctx);
     guitarPanelController.setTuningListener(tuning -> {
       soundPanelController.updateStringLabels(tuning);
+      tunerPanelController.updateTuning(tuning);
       ctx.applyTuning(tuning);
     });
     guitarPanelController.setBpmListener(playback::requestBpm);
     soundPanelController.init(ctx);
     volumePanelController.init(ctx);
+    tunerPanelController.init(ctx);
+
+    // App-header File menu: dialogs live in the header panel, actions here.
+    appHeader().setActionHandler(this::handleMenuAction);
 
     // Debug flags (behavior preserved from the monolith).
     if ("source".equalsIgnoreCase(System.getProperty("guitar.view"))) {
@@ -136,6 +144,10 @@ public class RootController {
     return topPanelController.transport();
   }
 
+  private AppHeaderPanelController appHeader() {
+    return topPanelController.appHeader();
+  }
+
   /* ------------------------------------------------------------------
    * Meter poll + screenshot
    * ------------------------------------------------------------------ */
@@ -182,6 +194,88 @@ public class RootController {
       }, "screenshot").start();
     }));
     shot.play();
+  }
+
+  /* ------------------------------------------------------------------
+   * File menu actions
+   * ------------------------------------------------------------------ */
+
+  /**
+   * The header panel owns the dialogs; the root controller owns the effects.
+   */
+  private void handleMenuAction(String action, java.nio.file.Path file) {
+    switch (action) {
+      case AppHeaderPanelController.OPEN_TAB -> tabPanelController.openTab(file);
+      case AppHeaderPanelController.IMPORT_GP -> importGuitarPro(file);
+      case AppHeaderPanelController.SAVE_PROJECT -> saveProject(file);
+      case AppHeaderPanelController.LOAD_PROJECT -> loadProject(file);
+      case AppHeaderPanelController.EXPORT_WAV -> exportWav(file);
+      default -> ctx.status("UNKNOWN MENU ACTION: " + action);
+    }
+  }
+
+  private void importGuitarPro(java.nio.file.Path file) {
+    try {
+      dev.guitar.tabplayer.tab.gp.GpImport.GpSong song =
+          dev.guitar.tabplayer.tab.gp.GpImport.importFile(file);
+      tabPanelController.replaceTabText(song.ascii());
+      guitarPanelController.setBpm(song.bpm());
+      ctx.status("IMPORTED " + file.getFileName().toString().toUpperCase()
+          + " — " + song.trackName() + " @ " + song.bpm() + " BPM");
+    } catch (Exception e) {
+      ctx.status("GP IMPORT FAILED: " + e.getMessage());
+    }
+  }
+
+  private void saveProject(java.nio.file.Path file) {
+    try {
+      ProjectFile.save(file, new ProjectFile.Project(
+          tabPanelController.tabText(),
+          guitarPanelController.getBpm(),
+          guitarPanelController.getTuning(),
+          ctx.driveProperty().get(), ctx.toneProperty().get(),
+          ctx.reverbProperty().get(), ctx.masterProperty().get()));
+      ctx.status("PROJECT SAVED " + file.getFileName().toString().toUpperCase());
+    } catch (Exception e) {
+      ctx.status("PROJECT SAVE FAILED: " + e.getMessage());
+    }
+  }
+
+  private void loadProject(java.nio.file.Path file) {
+    try {
+      ProjectFile.Project project = ProjectFile.load(file);
+      // The listeners fire as the panel state changes, so set the console
+      // first (tuning/fx) and the tab last — one final compile.
+      guitarPanelController.setBpm(project.bpm());
+      ctx.setFxValues(project.drive(), project.tone(), project.reverb(), project.master());
+      guitarPanelController.selectTuning(project.tuning());
+      tabPanelController.replaceTabText(project.tab());
+      ctx.status("PROJECT LOADED " + file.getFileName().toString().toUpperCase());
+    } catch (Exception e) {
+      ctx.status("PROJECT LOAD FAILED: " + e.getMessage());
+    }
+  }
+
+  private void exportWav(java.nio.file.Path file) {
+    if (!ctx.engineReady()) {
+      ctx.status("ENGINE NOT READY — EXPORT UNAVAILABLE");
+      return;
+    }
+    TabParser.TabTimeline timeline = playback.compileAndPublish(tabPanelController.tabText());
+    if (timeline.commands().isEmpty()) {
+      ctx.status("NOTHING TO EXPORT.");
+      return;
+    }
+    ctx.status("RENDERING " + timeline.commands().size() + " EVENTS OFFLINE...");
+    Thread t = new Thread(() -> {
+      boolean ok = ctx.engine().renderSequenceToWav(file, (float) timeline.durationSeconds(),
+          timeline.commands());
+      javafx.application.Platform.runLater(() -> ctx.status(
+          ok ? "EXPORTED " + timeline.commands().size() + " EVENTS TO " + file.toAbsolutePath()
+             : "EXPORT FAILED"));
+    }, "offline-render");
+    t.setDaemon(true);
+    t.start();
   }
 
   /* ------------------------------------------------------------------

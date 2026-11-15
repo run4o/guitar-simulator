@@ -21,6 +21,7 @@
   <bottom>
     <HBox spacing="12">
       <fx:include fx:id="guitarPanel" source="GuitarPanel.fxml"/>
+      <fx:include fx:id="tunerPanel" source="TunerPanel.fxml"/>
       <fx:include fx:id="soundPanel" source="SoundPanel.fxml"/>
       <fx:include fx:id="volumePanel" source="VolumePanel.fxml"/>
     </HBox>
