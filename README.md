@@ -75,3 +75,9 @@ scripts\package.cmd        :: jpackage app-image -> build\installer\GuitarTabPla
 | `-Dguitar.autoplay=true` | Plays the demo tab immediately at launch |
 | `-Dguitar.screenshot=path` | Captures the UI to a PNG after 2 s, then exits |
 | `-Dguitar.engine.lib=path` | Loads the native engine from an explicit path |
+| `-Dguitar.tuning=DROP_C` | Preselects a tuning at launch (name or label) |
+| `-Dguitar.fx=0.5,1,0.25,1` | Preselects FX at launch: drive,tone,reverb,master |
+| `-Dguitar.view=source` | Starts with the source editor visible instead of the score |
+
+The status line shows a **UI build stamp** (`UI BUILD <date> · engine <version>`) at
+launch — if behavior ever looks stale, that stamp identifies which build is running.

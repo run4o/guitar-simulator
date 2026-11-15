@@ -124,7 +124,7 @@
     -fx-font-family: 'Bebas Neue';
     -fx-font-size: 16px;
     -fx-background-radius: 3;
-    -fx-padding: 6 14 4 14;
+    -fx-padding: 6 10 4 10;
     -fx-cursor: hand;
 }
 
@@ -135,24 +135,6 @@
 .btn-steel:pressed {
     -fx-background-color: #3A3B3B;
 }
-
-.play-btn {
-    -fx-background-color: #474847;
-    -fx-text-fill: #EFEFEF;
-    -fx-font-family: 'Bebas Neue';
-    -fx-font-size: 22px;
-    -fx-background-radius: 24;
-    -fx-border-color: #2A2E40;
-    -fx-border-radius: 24;
-    -fx-border-width: 1.5;
-    -fx-padding: 8 20 6 20;
-    -fx-cursor: hand;
-}
-
-.play-btn:hover {
-    -fx-background-color: #565757;
-}
-
 /* ---- LEDs ------------------------------------------------------------ */
 
 .led {
@@ -277,6 +259,17 @@
     -fx-background-color: #56595F;
 }
 
+.spinner .increment-arrow-button,
+.spinner .decrement-arrow-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0 5;
+}
+
+.spinner .increment-arrow-button:hover,
+.spinner .decrement-arrow-button:hover {
+    -fx-background-color: #262A38;
+}
+
 .check-box {
     -fx-text-fill: #8B8E99;
     -fx-font-family: 'Bebas Neue';
@@ -297,6 +290,31 @@
 
 .check-box:selected .mark {
     -fx-background-color: #0F111A;
+}
+
+/* ---- guitar model selector ------------------------------------------- */
+
+.guitar-btn {
+    -fx-background-color: #0A0C14;
+    -fx-text-fill: #8B8E99;
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 14px;
+    -fx-background-radius: 3;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 3;
+    -fx-padding: 5 10 3 10;
+    -fx-cursor: hand;
+    -fx-alignment: center-left;
+}
+
+.guitar-btn:hover {
+    -fx-text-fill: #EFEFEF;
+}
+
+.guitar-btn:selected {
+    -fx-background-color: #00BCD4;
+    -fx-text-fill: #0F111A;
+    -fx-border-color: #00BCD4;
 }
 
 /* ---- separators ------------------------------------------------------ */

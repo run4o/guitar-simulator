@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import dev.guitar.tabplayer.ui.controls.ScoreLabels?>
+<?import dev.guitar.tabplayer.ui.controls.ScoreView?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.HBox?>
+
+<!-- Graphical visualization: fixed lane-label column + scrolling score strip. -->
+<HBox fx:id="scoreArea" fx:controller="dev.guitar.tabplayer.ui.controllers.ScorePanelController"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <ScoreLabels fx:id="scoreLabels"/>
+  <ScrollPane fx:id="scoreScroll" styleClass="score-scroll" fitToHeight="true"
+              vbarPolicy="NEVER" HBox.hgrow="ALWAYS">
+    <ScoreView fx:id="scoreView" fx:factory="fxLanes"/>
+  </ScrollPane>
+</HBox>

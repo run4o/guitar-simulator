@@ -54,6 +54,25 @@ class Phase2RealtimeTest {
     }
 
     @Test
+    void resetTransportDropsQueuedEvents() throws Exception {
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init(44100, 256));
+            if (!engine.start()) {
+                return; // no audio device (headless) — nothing to verify
+            }
+            // schedule a note 0.5 s in the future, then cancel the transport
+            long t = engine.sampleClock() + 22050;
+            engine.pushPluck(t, 0, 0, 0.9f, false);
+            engine.resetTransport();
+            engine.mute(0);
+            Thread.sleep(900);
+            assertTrue(engine.getLevel() < 0.002f,
+                    "a queued note must be dropped after a transport reset, level="
+                            + engine.getLevel());
+        }
+    }
+
+    @Test
     void queueRejectsEventsWhenFull() {
         try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
             assertTrue(engine.init(44100, 256));

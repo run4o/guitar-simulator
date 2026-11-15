@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!-- Tab panel: the sheet header with the tab controls, above the
+     visualization area (graphical score or ASCII source, pixel-exact swap). -->
+<VBox fx:controller="dev.guitar.tabplayer.ui.controllers.TabPanelController" spacing="8"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <fx:include fx:id="sheetHeaderPanel" source="SheetHeaderPanel.fxml"/>
+  <StackPane VBox.vgrow="ALWAYS">
+    <fx:include fx:id="scorePanel" source="ScorePanel.fxml"/>
+    <fx:include fx:id="sourcePanel" source="SourcePanel.fxml"/>
+  </StackPane>
+</VBox>

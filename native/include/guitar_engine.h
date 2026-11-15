@@ -30,7 +30,8 @@ enum {
     GTE_EVENT_LEGATO     = 1,
     GTE_EVENT_BEND       = 2,
     GTE_EVENT_MUTE       = 3,
-    GTE_EVENT_SET_TUNING = 4
+    GTE_EVENT_SET_TUNING = 4,
+    GTE_EVENT_SET_MODEL  = 5   /* fret field = guitar model (0=acoustic, 1=single, 2=humbucker) */
 };
 
 /* One timed synthesis command, used by the offline render API. */
@@ -57,6 +58,7 @@ GTE_EXPORT bool      guitar_engine_push_event(uint64_t sample_time, int type, in
 
 /* Immediate convenience wrappers (schedule at the current sample clock). */
 GTE_EXPORT void      guitar_engine_set_string_tuning(int string_index, float open_frequency_hz);
+GTE_EXPORT void      guitar_engine_set_guitar_model(int model);
 GTE_EXPORT void      guitar_engine_pluck_string(int string_index, int fret, float velocity, bool palm_mute);
 GTE_EXPORT void      guitar_engine_legato_fret(int string_index, int target_fret);
 GTE_EXPORT void      guitar_engine_bend_string(int string_index, float semitones);
@@ -79,5 +81,8 @@ GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain)
 
 /* Peak envelope of the rendered output (0..~1), fast-decaying — for VU metering. */
 GTE_EXPORT float     guitar_engine_get_level(void);
+
+/* Invalidates all queued events and silences playback — instant STOP. */
+GTE_EXPORT void      guitar_engine_reset_transport(void);
 
 #endif /* GUITAR_ENGINE_H */

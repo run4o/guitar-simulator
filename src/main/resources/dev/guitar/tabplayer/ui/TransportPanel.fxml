@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Spinner?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Pane?>
+<?import javafx.scene.layout.Region?>
+
+<!-- Play header: transport buttons, LOOP and the time LCD. -->
+<HBox fx:controller="dev.guitar.tabplayer.ui.controllers.TransportPanelController"
+      spacing="12" alignment="CENTER_LEFT" styleClass="panel"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <Pane fx:id="playLed" styleClass="led"/>
+  <Button fx:id="playBtn" text="PLAY" styleClass="btn-steel"/>
+  <Button fx:id="stopBtn" text="STOP" styleClass="btn-steel"/>
+  <CheckBox fx:id="loopBox" text="LOOP" selected="true" styleClass="check-box"/>
+  <Region HBox.hgrow="ALWAYS" minWidth="0"/>
+  <Label fx:id="timeLcd" text="00:00" styleClass="lcd">
+    <HBox.margin>
+      <Insets top="0" right="4" bottom="0" left="0"/>
+    </HBox.margin>
+  </Label>
+</HBox>

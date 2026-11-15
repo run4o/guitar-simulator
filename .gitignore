@@ -9,6 +9,9 @@ build/
 *.iml
 .vscode/
 
+# tooling junk (opencode plugin vendor clone leaked as a literal ~ path)
+/~
+
 # OS
 Thumbs.db
 .DS_Store

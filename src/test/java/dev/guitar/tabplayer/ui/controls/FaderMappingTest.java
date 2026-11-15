@@ -1,5 +1,6 @@
-package dev.guitar.tabplayer.ui;
+package dev.guitar.tabplayer.ui.controls;
 
+import dev.guitar.tabplayer.app.AppContext;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -66,11 +67,11 @@ class FaderMappingTest {
 
     @Test
     void noteNamesMatchScientificPitchNotation() {
-        assertEquals("E2", PlayerApp.noteName(82.41));
-        assertEquals("D2", PlayerApp.noteName(73.42));
-        assertEquals("C2", PlayerApp.noteName(65.41));
-        assertEquals("E4", PlayerApp.noteName(329.63));
-        assertEquals("D4", PlayerApp.noteName(293.66));
-        assertEquals("A#3", PlayerApp.noteName(220.0 * Math.pow(2, 0.5 / 12.0)));
+        assertEquals("E2", AppContext.noteName(82.41));
+        assertEquals("D2", AppContext.noteName(73.42));
+        assertEquals("C2", AppContext.noteName(65.41));
+        assertEquals("E4", AppContext.noteName(329.63));
+        assertEquals("D4", AppContext.noteName(293.66));
+        assertEquals("A#3", AppContext.noteName(220.0 * Math.pow(2, 0.5 / 12.0)));
     }
 }

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.TextArea?>
+
+<!-- Text visualization: the ASCII tab source editor (hidden until toggled). -->
+<TextArea fx:id="tabArea"
+          fx:controller="dev.guitar.tabplayer.ui.controllers.SourcePanelController"
+          visible="false" wrapText="true" styleClass="crt"
+          xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1"/>

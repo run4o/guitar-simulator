@@ -1,0 +1,211 @@
+package dev.guitar.tabplayer.ui.controllers;
+
+import dev.guitar.tabplayer.app.AppContext;
+import dev.guitar.tabplayer.model.Tuning;
+import dev.guitar.tabplayer.playback.PlaybackService;
+import dev.guitar.tabplayer.tab.TabParser;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.application.Platform;
+import javafx.fxml.FXML;
+import javafx.stage.Stage;
+import javafx.util.Duration;
+
+/**
+ * Root controller of the main page: owns the app context, the playback
+ * service and the 50 ms meter poll, and wires the panel controllers together.
+ * Panels expose small APIs (cursor, level, labels); all cross-panel policy
+ * lives here.
+ */
+public class RootController {
+
+  @FXML
+  private TopPanelController topPanelController;
+  @FXML
+  private TabPanelController tabPanelController;
+  @FXML
+  private GuitarPanelController guitarPanelController;
+  @FXML
+  private SoundPanelController soundPanelController;
+  @FXML
+  private VolumePanelController volumePanelController;
+
+  private AppContext ctx;
+  private PlaybackService playback;
+  private Stage stage;
+
+  public void init(AppContext ctx, Stage stage) {
+    this.ctx = ctx;
+    this.stage = stage;
+    playback = new PlaybackService(ctx);
+
+    playback.setTimelineListener(this::onTimelinePublished);
+    playback.setStateListener(playing -> {
+      transport().setPlaying(playing);
+      if (!playing) {
+        tabPanelController.deselectCaret();
+        ctx.status("STOPPED.");
+      }
+    });
+
+    transport().setActions(this::startPlayback, this::stopPlayback);
+    transport().setLoopListener(playback::setLoop);
+
+    tabPanelController.init(ctx, playback);
+    tabPanelController.setOnEditStop(() -> {
+      stopPlayback();
+      ctx.status("Edited — playback stopped");
+    });
+
+    guitarPanelController.init(ctx);
+    guitarPanelController.setTuningListener(tuning -> {
+      soundPanelController.updateStringLabels(tuning);
+      ctx.applyTuning(tuning);
+    });
+    guitarPanelController.setBpmListener(playback::requestBpm);
+    soundPanelController.init(ctx);
+    volumePanelController.init(ctx);
+
+    // Debug flags (behavior preserved from the monolith).
+    if ("source".equalsIgnoreCase(System.getProperty("guitar.view"))) {
+      tabPanelController.showSource(); // start in source view
+    }
+    String tuningProp = System.getProperty("guitar.tuning");
+    if (tuningProp != null) {
+      guitarPanelController.selectTuningNamed(tuningProp);
+    }
+    soundPanelController.updateStringLabels(guitarPanelController.getTuning());
+
+    ctx.status(ctx.engineReady()
+        ? (ctx.deviceRunning() ? "READY — EDIT THE TAB, THEN PLAY"
+                               : "ENGINE READY BUT NO AUDIO DEVICE — PLAYBACK UNAVAILABLE")
+        : "ERROR: ENGINE FAILED TO INITIALIZE — SEE CONSOLE");
+    ctx.status("UI BUILD " + java.time.LocalDate.now() + " · engine " +
+        (ctx.engine() != null ? ctx.engine().version() : "unavailable") +
+        (ctx.autoplay() ? " · autoplay" : ""));
+    System.out.println("[gtp] ui build " + java.time.LocalDate.now() + " · engine " +
+        (ctx.engine() != null ? ctx.engine().version() : "unavailable"));
+
+    if (ctx.engineReady()) {
+      ctx.applyTuning(guitarPanelController.getTuning());
+      tabPanelController.compileCurrent(); // render the initial score view + lane labels
+
+      String fxProp = System.getProperty("guitar.fx");
+      if (fxProp != null) {
+        String[] parts = fxProp.split(",");
+        if (parts.length == 4) {
+          try {
+            ctx.setFxValues(Double.parseDouble(parts[0]), Double.parseDouble(parts[1]),
+                Double.parseDouble(parts[2]), Double.parseDouble(parts[3]));
+          } catch (NumberFormatException ignored) {
+            // malformed flag values are simply ignored
+          }
+        }
+      }
+
+      if (ctx.autoplay()) {
+        Platform.runLater(this::startPlayback);
+      }
+      String shotPath = System.getProperty("guitar.screenshot");
+      if (shotPath != null) {
+        // optional capture delay: -Dguitar.screenshot=path@seconds
+        int at = shotPath.lastIndexOf('@');
+        double delay = 2.0;
+        if (at >= 0) {
+          try {
+            delay = Double.parseDouble(shotPath.substring(at + 1));
+          } catch (NumberFormatException ignored) {
+            // keep the default 2 s
+          }
+          shotPath = shotPath.substring(0, at);
+        }
+        final String finalPath = shotPath;
+        captureScreenshotLater(stage, finalPath, delay);
+      }
+    }
+
+    startMeterPoll();
+  }
+
+  public void handleClose() {
+    playback.halt();
+    ctx.shutdown();
+  }
+
+  private TransportPanelController transport() {
+    return topPanelController.transport();
+  }
+
+  /* ------------------------------------------------------------------
+   * Meter poll + screenshot
+   * ------------------------------------------------------------------ */
+
+  private void startMeterPoll() {
+    Timeline poll = new Timeline(new KeyFrame(Duration.millis(50), e -> {
+      if (!ctx.engineReady()) {
+        return;
+      }
+      volumePanelController.setVuLevel(ctx.engine().getLevel());
+      long clock = ctx.engine().sampleClock();
+      double cursor = playback.cursorSeconds(clock, AppContext.SR);
+      tabPanelController.updateCursor(cursor);
+      if (cursor >= 0) {
+        long total = (long) cursor;
+        transport().setTime(String.format("%02d:%02d", total / 60, total % 60));
+      } else {
+        transport().setTime("00:00");
+      }
+    }));
+    poll.setCycleCount(Timeline.INDEFINITE);
+    poll.play();
+  }
+
+  private void captureScreenshotLater(Stage stage, String path, double delaySeconds) {
+    Timeline shot = new Timeline(new KeyFrame(Duration.seconds(delaySeconds), e -> {
+      // Snapshot the scene content directly — immune to overlapping windows.
+      var image = stage.getScene().snapshot(null);
+      int w = (int) image.getWidth();
+      int h = (int) image.getHeight();
+      int[] pixels = new int[w * h];
+      image.getPixelReader().getPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(),
+          pixels, 0, w);
+      new Thread(() -> {
+        try {
+          var awt = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+          awt.setRGB(0, 0, w, h, pixels, 0, w);
+          javax.imageio.ImageIO.write(awt, "png", new java.io.File(path));
+          System.out.println("[screenshot] saved " + path);
+        } catch (Exception ex) {
+          ex.printStackTrace();
+        }
+        Platform.exit();
+      }, "screenshot").start();
+    }));
+    shot.play();
+  }
+
+  /* ------------------------------------------------------------------
+   * Playback actions
+   * ------------------------------------------------------------------ */
+
+  private void startPlayback() {
+    playback.play(tabPanelController.tabText(), guitarPanelController.getBpm());
+  }
+
+  private void stopPlayback() {
+    playback.stop();
+  }
+
+  /**
+   * A (re)compiled timeline arrives from the playback service: lane labels
+   * are derived from the selected tuning.
+   */
+  private void onTimelinePublished(TabParser.TabTimeline timeline) {
+    Tuning tuning = guitarPanelController.getTuning();
+    String[] labels = new String[6];
+    for (int s = 0; s < 6; s++) {
+      labels[s] = tuning != null ? AppContext.noteName(tuning.freqs[s]) : "--";
+    }
+    tabPanelController.showTimeline(timeline, labels);
+  }
+}

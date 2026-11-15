@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Pane?>
+<?import javafx.scene.layout.Region?>
+
+<!-- App header plate: product title, model tag and the always-on power LED. -->
+<HBox spacing="10" alignment="CENTER_LEFT"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <padding>
+    <Insets top="0" right="4" bottom="8" left="4"/>
+  </padding>
+  <Label text="GUITAR TAB PLAYER" styleClass="plate-title"/>
+  <Label text="GT-6 SYNTH" styleClass="model-tag"/>
+  <Region HBox.hgrow="ALWAYS" minWidth="0"/>
+  <Pane styleClass="led, led-cyan"/>
+</HBox>

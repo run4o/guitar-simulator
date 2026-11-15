@@ -34,10 +34,12 @@ constexpr int kStringCount = 6;
 constexpr int kMaxFret = 24;
 
 bool valid_string(int i) { return i >= 0 && i < kStringCount; }
-bool valid_command_type(int t) { return t >= GTE_EVENT_PLUCK && t <= GTE_EVENT_SET_TUNING; }
+bool valid_command_type(int t) { return t >= GTE_EVENT_PLUCK && t <= GTE_EVENT_SET_MODEL; }
+bool valid_model(int m) { return m >= 0 && m <= 2; }
 
 struct EngineEvent {
     uint64_t sample_time = 0;
+    uint32_t generation = 1;
     int type = 0;
     int string_index = 0;
     int fret = 0;
@@ -127,6 +129,7 @@ struct EngineState {
     bool initialized = false;
 
     std::atomic<uint64_t> frames_rendered{0};
+    std::atomic<uint32_t> generation{1}; // bumped by reset_transport; stale events are dropped
     SpscRing<EngineEvent, kEventQueueCapacity> queue;
 
     float open_frequencies[kStringCount] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f };
@@ -147,6 +150,13 @@ constexpr float kPanRight[kStringCount] = { 0.25f, 0.35f, 0.45f, 0.55f, 0.65f, 0
 
 void apply_command(gte::PluckedString* strings, float open_frequencies[], int type,
                    int string_index, int fret, float a, float b) {
+    if (type == GTE_EVENT_SET_MODEL) {
+        if (!valid_model(fret)) return;
+        for (int i = 0; i < kStringCount; ++i) {
+            strings[i].set_guitar_model(fret);
+        }
+        return;
+    }
     if (!valid_string(string_index)) return;
     gte::PluckedString& v = strings[string_index];
     switch (type) {
@@ -188,13 +198,18 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     const uint64_t base = s.frames_rendered.load(std::memory_order_relaxed);
     EngineEvent ev;
 
-    static thread_local float fx_cached[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-    sync_fx_params(s.fx_l, fx_cached);
-    sync_fx_params(s.fx_r, fx_cached);
+    static thread_local float fx_cached_l[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    sync_fx_params(s.fx_l, fx_cached_l);
+    sync_fx_params(s.fx_r, fx_cached_r);
 
     for (ma_uint32 i = 0; i < frames; ++i) {
         while (s.queue.pop_if_reached(base + i, ev)) {
-            apply_event(s, ev);
+            // Events queued before a transport reset are consumed and discarded,
+            // which drains the queue race-free.
+            if (ev.generation == s.generation.load(std::memory_order_relaxed)) {
+                apply_event(s, ev);
+            }
         }
         float leftSum = 0.0f;
         float rightSum = 0.0f;
@@ -238,8 +253,8 @@ GTE_EXPORT bool guitar_engine_init(int sample_rate, int buffer_frames) {
         g.strings[i] = gte::PluckedString(g.open_frequencies[i]);
         g.strings[i].prepare(g.sample_rate);
     }
-    g.fx_l.prepare(g.sample_rate);
-    g.fx_r.prepare(g.sample_rate);
+    g.fx_l.prepare(g.sample_rate, 0);
+    g.fx_r.prepare(g.sample_rate, 1); // Freeverb 23-sample spread -> decorrelated stereo tail
     g.queue.clear();
     g.frames_rendered.store(0, std::memory_order_relaxed);
     g.initialized = true;
@@ -291,10 +306,12 @@ GTE_EXPORT const char* guitar_engine_version(void) {
 GTE_EXPORT bool guitar_engine_push_event(uint64_t sample_time, int type, int string_index,
                                          int fret, float a, float b) {
     if (!g.initialized || !valid_command_type(type)) return false;
-    if (type != GTE_EVENT_SET_TUNING && !valid_string(string_index)) return false;
+    if (type != GTE_EVENT_SET_TUNING && type != GTE_EVENT_SET_MODEL
+            && !valid_string(string_index)) return false;
     if (type == GTE_EVENT_PLUCK && (fret < 0 || fret > kMaxFret)) return false;
     if (type == GTE_EVENT_LEGATO && (fret < 0 || fret > kMaxFret)) return false;
     EngineEvent ev;
+    ev.generation = g.generation.load(std::memory_order_relaxed);
     ev.sample_time = sample_time;
     ev.type = type;
     ev.string_index = string_index;
@@ -308,6 +325,12 @@ GTE_EXPORT void guitar_engine_set_string_tuning(int string_index, float open_fre
     if (!g.initialized || !valid_string(string_index) || open_frequency_hz <= 0.0f) return;
     guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_SET_TUNING,
                              string_index, 0, open_frequency_hz, 0.0f);
+}
+
+GTE_EXPORT void guitar_engine_set_guitar_model(int model) {
+    if (!g.initialized || !valid_model(model)) return;
+    guitar_engine_push_event(guitar_engine_sample_clock(), GTE_EVENT_SET_MODEL,
+                             -1, model, 0.0f, 0.0f);
 }
 
 GTE_EXPORT void guitar_engine_pluck_string(int string_index, int fret, float velocity, bool palm_mute) {
@@ -401,6 +424,12 @@ GTE_EXPORT void guitar_engine_set_string_gain(int string_index, float gain) {
     if (valid_string(string_index)) {
         g_ch.gains[string_index].store(std::clamp(gain, 0.0f, 2.0f), std::memory_order_relaxed);
     }
+}
+
+GTE_EXPORT void guitar_engine_reset_transport(void) {
+    // Invalidates every queued event (the audio thread drops stale generations)
+    // so a scheduled iteration cannot keep playing after STOP.
+    g.generation.fetch_add(1, std::memory_order_relaxed);
 }
 
 GTE_EXPORT float guitar_engine_get_level(void) {

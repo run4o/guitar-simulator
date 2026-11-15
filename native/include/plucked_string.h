@@ -14,6 +14,10 @@ namespace gte {
  *  - one-pole loop low-pass (natural high-harmonic damping; lowered for palm mute)
  *  - T60-based per-sample decay gain (pitch-independent decay time)
  *  - per-voice DC blocker
+ *  - guitar simulations: acoustic (full string decay) or magnetic-pickup models
+ *    (electric single coil / humbucker) that render a weighted sum of two taps
+ *    of the same delay line at the pickup position — pickup comb notches and
+ *    brighter, longer-sustained voicing per model.
  *
  * Loop structure per sample:
  *   read tap at integer delay N  ->  allpass(+delta)  ->  one-pole LP  ->  gain  ->  write
@@ -34,7 +38,7 @@ public:
         delay_ = nominal_delay_;
         target_delay_ = delay_;
         slew_per_sample_ = 0.0f;
-        set_envelope(kNormalT60, kNormalCutoff);
+        set_envelope(model_t60_, model_cutoff_);
     }
 
     void set_open_frequency(float hz) {
@@ -47,8 +51,8 @@ public:
         delay_ = nominal_delay_;
         target_delay_ = nominal_delay_;
         slew_per_sample_ = 0.0f;
-        set_envelope(palm_mute ? kPalmMuteT60 : kNormalT60,
-                     palm_mute ? kPalmMuteCutoff : kNormalCutoff);
+        set_envelope(palm_mute ? kPalmMuteT60 : model_t60_,
+                     palm_mute ? kPalmMuteCutoff : model_cutoff_);
         excite(velocity);
     }
 
@@ -57,7 +61,7 @@ public:
         float f = open_frequency_ * std::pow(2.0f, target_fret / 12.0f);
         nominal_delay_ = clamp_delay(fs_ / f);
         slew_to(nominal_delay_, kLegatoSlewSeconds);
-        set_envelope(t60_current_, cutoff_current_);
+        set_envelope(model_t60_, model_cutoff_);
     }
 
     /* Bend (also used for slides): pitch glides by `semitones` relative to the
@@ -65,12 +69,44 @@ public:
     void bend(float semitones) {
         nominal_delay_ = clamp_delay(nominal_delay_ * std::pow(2.0f, -semitones / 12.0f));
         slew_to(nominal_delay_, kBendSlewSeconds);
-        set_envelope(t60_current_, cutoff_current_);
+        set_envelope(model_t60_, model_cutoff_);
     }
 
     void mute() {
-        set_envelope(kMuteT60, cutoff_current_);
+        set_envelope(kMuteT60, model_cutoff_);
         slew_to(delay_, 0.0f); // stop any glide in progress
+    }
+
+    /* Guitar simulations: 0 = acoustic (current behavior), 1 = electric single
+     * coil, 2 = electric humbucker. Switching re-voices the string and changes
+     * the output from the full string decay to magnetic-pickup tap sums. */
+    void set_guitar_model(int model) {
+        model_ = model;
+        switch (model) {
+            case 1: // single coil: bright, thin low end, very long sustain
+                model_t60_ = 9.0f;
+                model_cutoff_ = 11000.0f;
+                excite_smooth_ = 0.05f;
+                pickup_frac_ = 0.14f;
+                pickup_frac2_ = -1.0f; // single pickup
+                break;
+            case 2: // humbucker: fatter, softer, slightly shorter
+                model_t60_ = 7.0f;
+                model_cutoff_ = 7500.0f;
+                excite_smooth_ = 0.12f;
+                pickup_frac_ = 0.10f;
+                pickup_frac2_ = 0.15f; // second coil 5% along the string
+                break;
+            default: // acoustic: full-body, warm
+                model_ = 0;
+                model_t60_ = kNormalT60;
+                model_cutoff_ = kNormalCutoff;
+                excite_smooth_ = 0.4f;
+                pickup_frac_ = -1.0f;
+                pickup_frac2_ = -1.0f;
+                break;
+        }
+        set_envelope(model_t60_, model_cutoff_);
     }
 
     float render_sample() {
@@ -84,6 +120,10 @@ public:
         int n = static_cast<int>(delay_);
         float frac = delay_ - static_cast<float>(n);
         float c = (1.0f - frac) / (1.0f + frac); // allpass coefficient = (1-d)/(1+d)
+        // Keep the allpass pole (z = -c) strictly inside the unit circle: at
+        // frac -> 0 the pole reaches -1 and the filter's internal state rings
+        // at the sample rate forever (the metallic sustained artifact).
+        c = std::min(c, 0.9f);
 
         float x0 = buf_[wrap(write_idx_ - n)];
         float x1 = buf_[wrap(write_idx_ - n - 1)];
@@ -95,6 +135,25 @@ public:
         float fb = lp_state_ * decay_gain_;
         buf_[write_idx_] = fb;
         write_idx_ = wrap(write_idx_ + 1);
+
+        if (model_ != 0) {
+            /* Magnetic pickup: comb filter on the loop output. The tap pair is
+             * separated by pickup_frac * loop length, giving per-harmonic
+             * weighting |2 sin(pi m p)| — the true pickup-position response
+             * (notches at harmonic k/p). Humbucker averages a second coil 5%
+             * along the string, which fills notches -> fatter tone. */
+            const int tau = std::max(2, std::min(
+                    static_cast<int>(pickup_frac_ * nominal_delay_), kBufferSamples / 3));
+            const float x0 = buf_[wrap(write_idx_ - n)];
+            const float xt = buf_[wrap(write_idx_ - n - tau)];
+            if (model_ == 1) {
+                return 0.5f * (x0 - xt);
+            }
+            const int tau2 = std::max(tau + 2, std::min(
+                    static_cast<int>(pickup_frac2_ * nominal_delay_), kBufferSamples / 3));
+            const float xt2 = buf_[wrap(write_idx_ - n - tau2)];
+            return 0.25f * ((x0 - xt) + (x0 - xt2));
+        }
 
         // DC blocker: hp = x - x_prev + R*hp_prev
         float hp = fb - dc_prev_ + 0.995f * dc_state_;
@@ -112,6 +171,7 @@ private:
     static constexpr float kPalmMuteCutoff = 1200.0f;
     static constexpr float kLegatoSlewSeconds = 0.008f;
     static constexpr float kBendSlewSeconds = 0.18f;
+    static constexpr float kExciteSmooth = 0.4f; // acoustic pick burst low-pass
 
     static int wrap(int i) { return i & (kBufferSamples - 1); }
 
@@ -150,9 +210,22 @@ private:
         int count = std::min(static_cast<int>(std::ceil(delay_)) + 4, kBufferSamples - 8);
         float amp = velocity;
         float last = 0.0f;
+        double sum = 0.0;
         for (int k = 0; k < count; ++k) {
-            last += 0.4f * (noise() - last); // mildly low-passed noise burst
-            buf_[wrap(write_idx_ - 1 - k)] = amp * last;
+            // pick burst low-pass: acoustic = soft pick, electric = bright pick
+            last += excite_smooth_ * (noise() - last);
+            const float v = amp * last;
+            buf_[wrap(write_idx_ - 1 - k)] = v;
+            sum += v;
+        }
+        // Remove the burst's DC offset: the loop chain passes DC exactly, and a
+        // decaying DC offset leaks back through the output DC blocker as a
+        // non-decaying floor that masks the string's real T60 decay.
+        const float mean = static_cast<float>(sum / count);
+        if (std::fabs(mean) > 1e-6f) {
+            for (int k = 0; k < count; ++k) {
+                buf_[wrap(write_idx_ - 1 - k)] -= mean;
+            }
         }
         ap_state_ = buf_[wrap(write_idx_ - 1)];
         lp_state_ = ap_state_;
@@ -160,6 +233,12 @@ private:
 
     float fs_ = 44100.0f;
     float open_frequency_;
+    int model_ = 0;
+    float model_t60_ = kNormalT60;
+    float model_cutoff_ = kNormalCutoff;
+    float excite_smooth_ = kExciteSmooth;
+    float pickup_frac_ = -1.0f;
+    float pickup_frac2_ = -1.0f;
     std::vector<float> buf_;
     int write_idx_ = 0;
     float delay_ = 100.0f;

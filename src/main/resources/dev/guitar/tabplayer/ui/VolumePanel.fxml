@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import dev.guitar.tabplayer.ui.controls.Fader?>
+<?import dev.guitar.tabplayer.ui.controls.VuMeter?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<!-- Volume panel: the MASTER fader and the engine-driven OUT VU meter. -->
+<HBox fx:controller="dev.guitar.tabplayer.ui.controllers.VolumePanelController"
+      spacing="16" alignment="CENTER" styleClass="panel"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <padding>
+    <Insets top="8" right="16" bottom="8" left="16"/>
+  </padding>
+  <VBox spacing="4" alignment="TOP_CENTER">
+    <Fader fx:id="masterFader" fx:factory="fxFader" prefWidth="44" prefHeight="190"/>
+    <Label text="MASTER" styleClass="knob-label"/>
+  </VBox>
+  <VBox spacing="4" alignment="TOP_CENTER">
+    <VuMeter fx:id="vuMeter" fx:factory="fxVertical"/>
+    <Label text="OUT" styleClass="knob-label"/>
+  </VBox>
+</HBox>

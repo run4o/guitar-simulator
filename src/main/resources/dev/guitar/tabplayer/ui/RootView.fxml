@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+
+<!-- Main page: root controller wiring happens through fx:include controller
+     injection; the top strip, the tab panel and the three bottom console
+     panels are each their own FXML + controller. -->
+<BorderPane fx:controller="dev.guitar.tabplayer.ui.controllers.RootController"
+            style="-fx-background-color: #0F111A;"
+            xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <padding>
+    <Insets top="10" right="10" bottom="10" left="10"/>
+  </padding>
+  <top>
+    <fx:include fx:id="topPanel" source="TopPanel.fxml"/>
+  </top>
+  <center>
+    <fx:include fx:id="tabPanel" source="TabPanel.fxml"/>
+  </center>
+  <bottom>
+    <HBox spacing="12">
+      <fx:include fx:id="guitarPanel" source="GuitarPanel.fxml"/>
+      <fx:include fx:id="soundPanel" source="SoundPanel.fxml"/>
+      <fx:include fx:id="volumePanel" source="VolumePanel.fxml"/>
+    </HBox>
+  </bottom>
+</BorderPane>

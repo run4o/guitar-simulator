@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import dev.guitar.tabplayer.ui.controls.Fader?>
+<?import dev.guitar.tabplayer.ui.controls.Knob?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<!-- Sound controller panel: six per-string channel faders and the DRIVE /
+     TONE / REVERB knobs, separated by the console dividers. -->
+<HBox fx:controller="dev.guitar.tabplayer.ui.controllers.SoundPanelController"
+      spacing="16" alignment="CENTER" styleClass="panel"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <Label styleClass="console-divider"/>
+  <HBox spacing="8" alignment="TOP_CENTER" HBox.hgrow="ALWAYS">
+    <VBox spacing="4" alignment="TOP_CENTER">
+      <Fader fx:id="fader0" fx:factory="fxFader"/>
+      <Label fx:id="stringLabel0" text="--" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="4" alignment="TOP_CENTER">
+      <Fader fx:id="fader1" fx:factory="fxFader"/>
+      <Label fx:id="stringLabel1" text="--" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="4" alignment="TOP_CENTER">
+      <Fader fx:id="fader2" fx:factory="fxFader"/>
+      <Label fx:id="stringLabel2" text="--" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="4" alignment="TOP_CENTER">
+      <Fader fx:id="fader3" fx:factory="fxFader"/>
+      <Label fx:id="stringLabel3" text="--" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="4" alignment="TOP_CENTER">
+      <Fader fx:id="fader4" fx:factory="fxFader"/>
+      <Label fx:id="stringLabel4" text="--" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="4" alignment="TOP_CENTER">
+      <Fader fx:id="fader5" fx:factory="fxFader"/>
+      <Label fx:id="stringLabel5" text="--" styleClass="knob-label"/>
+    </VBox>
+  </HBox>
+  <Label styleClass="console-divider"/>
+  <HBox spacing="14" alignment="TOP_CENTER">
+    <VBox spacing="2" alignment="TOP_CENTER">
+      <padding>
+        <Insets top="22" right="0" bottom="0" left="0"/>
+      </padding>
+      <Knob fx:id="fxDrive"/>
+      <Label text="DRIVE" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="2" alignment="TOP_CENTER">
+      <padding>
+        <Insets top="22" right="0" bottom="0" left="0"/>
+      </padding>
+      <Knob fx:id="fxTone" value="1"/>
+      <Label text="TONE" styleClass="knob-label"/>
+    </VBox>
+    <VBox spacing="2" alignment="TOP_CENTER">
+      <padding>
+        <Insets top="22" right="0" bottom="0" left="0"/>
+      </padding>
+      <Knob fx:id="fxReverb"/>
+      <Label text="REVERB" styleClass="knob-label"/>
+    </VBox>
+  </HBox>
+  <Label styleClass="console-divider"/>
+</HBox>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Spinner?>
+<?import javafx.scene.layout.VBox?>
+
+<!-- Guitar panel: MODEL selector, TUNE selector and the BPM tempo setting. -->
+<VBox fx:controller="dev.guitar.tabplayer.ui.controllers.GuitarPanelController"
+      spacing="6" alignment="TOP_LEFT" styleClass="panel"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <padding>
+    <Insets top="8" right="10" bottom="8" left="10"/>
+  </padding>
+  <Label text="MODEL" styleClass="model-tag"/>
+  <ComboBox fx:id="modelBox"/>
+  <Label text="TUNE" styleClass="model-tag"/>
+  <ComboBox fx:id="tuningBox"/>
+  <Label text="BPM" styleClass="model-tag"/>
+  <Spinner fx:id="bpmSpinner" editable="true"/>
+</VBox>
