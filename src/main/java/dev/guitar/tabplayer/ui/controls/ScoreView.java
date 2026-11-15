@@ -11,25 +11,12 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 
 /**
- * Score/cue view: renders the compiled timeline — what the engine will actually
- * play — as six string lanes on a real-time axis, with a bar-number ruler,
- * beat grid, sweeping playback cursor, and click-to-select bar blocks.
- * <p>
- * Lane labels are a live display derived from the selected tuning; they are
- * deliberately decoupled from the ASCII text's marker letters.
+ * Score/cue view, multi-row edition: bars wrap into stacked rows (a sheet of
+ * tab lines), vertically scrolled. The canvas is VIEWPORT-sized and only the
+ * rows intersecting the viewport are drawn (culling), so even hour-long songs
+ * stay inside the GPU texture limits.
  */
 public class ScoreView extends Canvas {
-
-  public static final double GUTTER = 56;   // used when labels are drawn in-canvas
-  public static final double PPS = 140;     // pixels per second
-  public static final double HEADER_H = 24;
-  public static final double PADDING = 6;
-
-  /**
-   * The compact score strip's natural height (header + 6 x 30px lanes).
-   */
-  public static final double COMPACT_HEIGHT = HEADER_H + 2 * PADDING + 6 * 30;
-  private static final double EDGE_L = 2;   // lane stripe inset when labels are external
 
   private static final Color BG = Color.web("#0A0C14");
   private static final Color LANE_A = Color.web("#151823");
@@ -38,40 +25,24 @@ public class ScoreView extends Canvas {
   private static final Color GRID = Color.rgb(255, 255, 255, 0.05);
   private static final Color LABEL = Color.web("#8B8E99");
   private static final Color CYAN = Color.web("#00BCD4");
-  private static final Color RED = Color.web("#E01212");
   private static final Color SILVER = Color.web("#EFEFEF");
   private static final Color INK = Color.web("#0F111A");
 
+  private static final int HEADER_H = 24;
+  private static final int PADDING = 6;
+  private static final double EDGE_L = 2;
+
   private TabParser.TabTimeline timeline;
   private final String[] laneLabels = {"-", "-", "-", "-", "-", "-"};
-  private final boolean externalLabels; // true: labels live in a fixed column outside the scroll pane
   private double cursorSeconds = -1;
   private int selFirst = -1;
   private int selLast = -1;
-  private double minContentWidth = 900;
-  private double contentSeconds = 0;
-  private double pps = PPS; // effective scale: widens so fret digits never overlap
+  private ScoreLayout layout = ScoreLayout.compute(0, 1, 900, 300, 0);
   private BiConsumer<Integer, Boolean> onBarClick; // (global bar index, extend selection)
 
   public ScoreView() {
-    this(false);
-  }
-
-  public ScoreView(boolean externalLabels) {
-    super(900, 300);
-    this.externalLabels = externalLabels;
-    widthProperty().addListener((o, ov, nv) -> draw());
-    heightProperty().addListener((o, ov, nv) -> draw());
     setOnMouseClicked(this::onClick);
     draw();
-  }
-
-  /**
-   * FXML factory: the score strip with its lane labels in a fixed column
-   * outside the scroll pane (the externalLabels variant).
-   */
-  public static ScoreView fxLanes() {
-    return new ScoreView(true);
   }
 
   public void setOnBarClick(BiConsumer<Integer, Boolean> handler) {
@@ -87,71 +58,22 @@ public class ScoreView extends Canvas {
 
   public void setTimeline(TabParser.TabTimeline newTimeline) {
     timeline = newTimeline;
-    // view ends shortly after the last event — the ring-out tail is dead space
-    double lastEvent = 0;
-    if (newTimeline != null && !newTimeline.commands().isEmpty()) {
-      lastEvent = newTimeline.commands().get(newTimeline.commands().size() - 1).timeOffset();
-    }
-    contentSeconds = newTimeline == null ? 0 : Math.min(newTimeline.durationSeconds(), lastEvent + 0.8);
-    pps = effectivePps(newTimeline);
-    updateWidth();
+    refreshLayout();
     draw();
   }
 
-  /**
-   * Pixels per second: the base scale, widened until consecutive notes on the
-   * same string never overlap (fret digits must stay readable).
-   */
-  private static double effectivePps(TabParser.TabTimeline timeline) {
-    if (timeline == null) {
-      return PPS;
-    }
-    java.util.Map<Integer, java.util.List<Double>> byString = new java.util.HashMap<>();
-    for (TabParser.TabEvent event : timeline.events()) {
-      byString.computeIfAbsent(event.command().stringIndex(), k -> new java.util.ArrayList<>()).add(
-          (double) event.command().timeOffset());
-    }
-    double minGap = Double.MAX_VALUE;
-    for (java.util.List<Double> times : byString.values()) {
-      java.util.Collections.sort(times);
-      for (int i = 1; i < times.size(); i++) {
-        double gap = times.get(i) - times.get(i - 1);
-        if (gap > 0.001 && gap < minGap) {
-          minGap = gap;
-        }
-      }
-    }
-    if (minGap == Double.MAX_VALUE) {
-      return PPS;
-    }
-    return Math.min(600, Math.max(PPS, 26.0 / minGap));
+  /** Viewport-driven canvas size (the canvas is never larger than this). */
+  public void setCanvasSize(double width, double height) {
+    setWidth(Math.max(100, width));
+    setHeight(Math.max(100, height));
+    refreshLayout();
+    draw();
   }
 
-  /**
-   * Current horizontal scale in px/s.
-   */
-  public double pixelsPerSecond() {
-    return pps;
-  }
-
-  /**
-   * Pixel x of the playback cursor (used by the auto-scroll logic).
-   */
-  public double cursorPixel() {
-    return gutterX() + Math.max(0, cursorSeconds) * pps;
-  }
-
-  /**
-   * The pane may be wider than the content — lanes then stretch to fill it.
-   */
-  public void setMinContentWidth(double viewportWidth) {
-    minContentWidth = viewportWidth;
-    updateWidth();
-  }
-
-  private void updateWidth() {
-    double content = gutterX() + contentSeconds * pps + 30;
-    setWidth(Math.max(minContentWidth, content));
+  public void setScrollY(double scrollY) {
+    layout = ScoreLayout.compute(layout.barCount, layout.contentSeconds,
+        layout.canvasWidth, layout.canvasHeight, scrollY);
+    draw();
   }
 
   public void setCursorSeconds(double seconds) {
@@ -167,52 +89,52 @@ public class ScoreView extends Canvas {
     draw();
   }
 
+  /** The row containing the playback cursor (for page-flip scrolling). */
+  public int rowForCursor() {
+    return cursorSeconds < 0 ? -1 : layout.rowForTime(cursorSeconds);
+  }
+
+  /** Virtual content height of the whole song (drives the scroll range). */
+  public double totalHeight() {
+    return layout.totalHeight();
+  }
+
+  /** Scroll offset that centers the cursor's row. */
+  public double scrollYForCursor() {
+    return cursorSeconds < 0 ? 0 : layout.scrollYForRow(layout.rowForTime(cursorSeconds));
+  }
+
+  private void refreshLayout() {
+    int bars = timeline == null ? 0 : timeline.barTimes().size();
+    double seconds = contentSecondsOf(timeline);
+    layout = ScoreLayout.compute(bars, seconds, getWidth(), getHeight(), layout.scrollY);
+  }
+
+  /**
+   * Display length: up to shortly after the last event — the ring-out tail
+   * is dead space.
+   */
+  private static double contentSecondsOf(TabParser.TabTimeline timeline) {
+    if (timeline == null || timeline.commands().isEmpty()) {
+      return 1.0;
+    }
+    double lastEvent = timeline.commands().get(timeline.commands().size() - 1).timeOffset();
+    return Math.min(timeline.durationSeconds(), lastEvent + 0.8);
+  }
+
   private void onClick(MouseEvent e) {
     if (timeline == null || onBarClick == null) {
       return;
     }
-    double time = (e.getX() - gutterX()) / pps;
-    for (int i = 0; i < timeline.barTimes().size(); i++) {
-      TabParser.BarTime bt = timeline.barTimes().get(i);
-      if (time >= bt.startSeconds() && time <= bt.endSeconds()) {
-        onBarClick.accept(i, e.isShiftDown());
-        return;
-      }
+    int bar = layout.barAt(e.getX(), e.getY());
+    if (bar >= 0) {
+      onBarClick.accept(bar, e.isShiftDown());
     }
   }
 
-  /**
-   * Lane-stripe origin: 0 when the label gutter is a separate fixed column.
-   */
-  private double gutterX() {
-    return externalLabels ? 0.0 : GUTTER;
-  }
-
-  /**
-   * Cell width for a note at time t on its string: runs to the next note on
-   * that string (so digits never overlap), clamped to a sane range.
-   */
-  private static double cellWidth(java.util.List<Double> times, double t, double pps) {
-    if (times == null) {
-      return 22;
-    }
-    double next = Double.MAX_VALUE;
-    for (double time : times) {
-      if (time > t + 0.001 && time < next) {
-        next = time;
-      }
-    }
-    double gapSeconds = next == Double.MAX_VALUE ? 0.6 : next - t;
-    return Math.max(14, Math.min(26, gapSeconds * pps - 2));
-  }
-
+  /** Lane height within a compact row. */
   private double laneHeight() {
-    // compact: lanes cap at 30px so the score never stretches vertically
-    return Math.min(30, Math.max(16, (getHeight() - HEADER_H - 2 * PADDING) / 6.0));
-  }
-
-  private double laneTop(int lane) {
-    return HEADER_H + PADDING + lane * laneHeight();
+    return Math.max(10, (ScoreLayout.ROW_HEIGHT - HEADER_H - 2 * PADDING) / 6.0);
   }
 
   private void draw() {
@@ -223,75 +145,99 @@ public class ScoreView extends Canvas {
     g.setFill(BG);
     g.fillRect(0, 0, w, h);
 
-    double lh = laneHeight();
-    double x0 = gutterX();
-
-    // lane stripes + vertically centered labels
-    g.setTextBaseline(VPos.CENTER);
-    for (int lane = 0; lane < 6; lane++) {
-      double top = laneTop(lane);
-      g.setFill(lane % 2 == 0 ? LANE_A : LANE_B);
-      g.fillRect(x0, top, w - x0 - EDGE_L, lh - 2);
-      if (!externalLabels) {
-        g.setFill(LABEL);
-        g.setFont(Font.font("Share Tech Mono", 13));
-        g.fillText(laneLabels[lane], 12, top + lh / 2.0);
+    if (timeline != null && !timeline.barTimes().isEmpty()) {
+      // next-note times per string (cell widths) — built once per draw
+      java.util.Map<Integer, java.util.List<Double>> timesByString = new java.util.HashMap<>();
+      for (TabParser.TabEvent event : timeline.events()) {
+        timesByString.computeIfAbsent(event.command().stringIndex(), k -> new java.util.ArrayList<>())
+            .add((double) event.command().timeOffset());
+      }
+      for (java.util.List<Double> times : timesByString.values()) {
+        java.util.Collections.sort(times);
+      }
+      int first = layout.firstVisibleRow();
+      int last = layout.lastVisibleRowEx();
+      int cursorRow = cursorSeconds >= 0 ? layout.rowForTime(cursorSeconds) : -1;
+      for (int row = first; row < last; row++) {
+        drawRow(g, row, w, timesByString, cursorRow == row);
       }
     }
+  }
 
-    if (timeline == null) {
-      return;
+  private void drawRow(GraphicsContext g, int row, double w,
+      java.util.Map<Integer, java.util.List<Double>> timesByString, boolean hasCursor) {
+    double yTop = layout.rowTop(row) - layout.scrollY;
+    double lh = laneHeight();
+    double x0 = ScoreLayout.GUTTER;
+
+    // lane stripes + gutter labels
+    g.setTextBaseline(VPos.CENTER);
+    for (int lane = 0; lane < 6; lane++) {
+      double top = yTop + HEADER_H + PADDING + lane * lh;
+      g.setFill(lane % 2 == 0 ? LANE_A : LANE_B);
+      g.fillRect(0, top, w - EDGE_L, lh - 2);
+      g.setFill(LABEL);
+      g.setFont(Font.font("Share Tech Mono", 13));
+      g.fillText(laneLabels[lane], 12, top + lh / 2.0);
     }
 
-    // bar separators at bar STARTS (plus one closing line), beat grid inside
-    int lastBar = timeline.barTimes().size() - 1;
-    for (int i = 0; i < timeline.barTimes().size(); i++) {
-      TabParser.BarTime bt = timeline.barTimes().get(i);
-      double startX = x0 + bt.startSeconds() * pps;
+    int firstBar = row * layout.barsPerRow;
+    int lastBar = Math.min(layout.barCount - 1, firstBar + layout.barsPerRow - 1);
+    if (firstBar > lastBar) {
+      return;
+    }
+    double rowBottom = yTop + ScoreLayout.ROW_HEIGHT - PADDING;
+
+    // bar separators + beat grid
+    for (int bar = firstBar; bar <= lastBar; bar++) {
+      double startX = layout.xForCol(layout.colForBar(bar));
       g.setStroke(EDGE);
       g.setLineWidth(1);
-      g.strokeLine(startX, HEADER_H, startX, h - PADDING);
+      g.strokeLine(startX, yTop + HEADER_H, startX, rowBottom);
+      TabParser.BarTime bt = timeline.barTimes().get(bar);
       double beat = (bt.endSeconds() - bt.startSeconds()) / 4.0;
       g.setStroke(GRID);
       for (int k = 1; k < 4; k++) {
-        double bx = x0 + (bt.startSeconds() + k * beat) * pps;
-        g.strokeLine(bx, HEADER_H, bx, h - PADDING);
+        double bx = startX + (bt.startSeconds() + k * beat - bt.startSeconds()) * barSecondsPx(bar);
+        g.strokeLine(bx, yTop + HEADER_H, bx, rowBottom);
       }
     }
-    if (lastBar >= 0) {
-      double endX = x0 + timeline.barTimes().get(lastBar).endSeconds() * pps;
-      g.setStroke(EDGE);
-      g.strokeLine(endX, HEADER_H, endX, h - PADDING);
-    }
+    double closeX = layout.xForCol(layout.colForBar(lastBar)) + layout.barPx;
+    g.setStroke(EDGE);
+    g.strokeLine(closeX, yTop + HEADER_H, closeX, rowBottom);
 
-    // selection overlay
-    if (selFirst >= 0 && selLast >= 0 && selFirst < timeline.barTimes().size() &&
-        selLast < timeline.barTimes().size()) {
+    // selection overlay (may span several rows: clip to this row's bars)
+    if (selFirst >= 0 && selLast >= 0) {
       int f = Math.min(selFirst, selLast);
       int l = Math.max(selFirst, selLast);
-      double sx0 = x0 + timeline.barTimes().get(f).startSeconds() * pps;
-      double sx1 = x0 + timeline.barTimes().get(l).endSeconds() * pps;
-      g.setFill(Color.rgb(0, 188, 212, 0.15));
-      g.fillRect(sx0, HEADER_H, sx1 - sx0, h - HEADER_H - PADDING);
-      g.setStroke(CYAN);
-      g.strokeRect(sx0, HEADER_H, sx1 - sx0, h - HEADER_H - PADDING);
+      f = Math.max(f, firstBar);
+      l = Math.min(l, lastBar);
+      if (f <= l) {
+        double sx0 = layout.xForCol(layout.colForBar(f));
+        double sx1 = layout.xForCol(layout.colForBar(l)) + layout.barPx;
+        g.setFill(Color.rgb(0, 188, 212, 0.15));
+        g.fillRect(sx0, yTop + HEADER_H, sx1 - sx0, rowBottom - yTop - HEADER_H);
+        g.setStroke(CYAN);
+        g.strokeRect(sx0, yTop + HEADER_H, sx1 - sx0, rowBottom - yTop - HEADER_H);
+      }
     }
 
-    // events — fret digits inside the cells
-    java.util.Map<Integer, java.util.List<Double>> timesByString = new java.util.HashMap<>();
-    for (TabParser.TabEvent event : timeline.events()) {
-      timesByString.computeIfAbsent(event.command().stringIndex(), k -> new java.util.ArrayList<>()).add(
-          (double) event.command().timeOffset());
-    }
-    for (java.util.List<Double> times : timesByString.values()) {
-      java.util.Collections.sort(times);
-    }
+    // events — fret digits inside the cells (only this row's bars)
     for (TabParser.TabEvent event : timeline.events()) {
       RenderCommand cmd = event.command();
-      double x = x0 + cmd.timeOffset() * pps;
-      double laneCenter = laneTop(cmd.stringIndex()) + lh / 2.0;
-      double cellW = cellWidth(timesByString.get(cmd.stringIndex()), cmd.timeOffset(), pps);
-      double cellH = Math.min(lh - 6, 20.0);
+      int bar = eventBar(cmd.timeOffset());
+      if (bar < firstBar || bar > lastBar) {
+        continue;
+      }
+      TabParser.BarTime bt = timeline.barTimes().get(bar);
+      double x = layout.xForCol(layout.colForBar(bar))
+          + (cmd.timeOffset() - bt.startSeconds()) * barSecondsPx(bar);
+      if (x >= w - EDGE_L) {
+        continue;
+      }
+      double laneCenter = yTop + HEADER_H + PADDING + cmd.stringIndex() * lh + lh / 2.0;
+      double cellW = cellWidth(cmd, bar, bt, timesByString);
+      double cellH = Math.min(lh - 4, 20.0);
       switch (cmd.type()) {
         case RenderCommandType.PLUCK -> {
           g.setFill(CYAN);
@@ -311,13 +257,13 @@ public class ScoreView extends Canvas {
           g.fillText(String.valueOf(cmd.fret()), x + cellW / 2, laneCenter);
         }
         case RenderCommandType.BEND -> {
-          g.setFill(RED);
+          g.setFill(Color.web("#E01212"));
           if (cmd.a() >= 0) {
-            g.fillPolygon(new double[]{x, x + 9, x + 4.5}, new double[]{laneCenter + 5, laneCenter + 5, laneCenter - 5},
-                3);
+            g.fillPolygon(new double[]{x, x + 9, x + 4.5},
+                new double[]{laneCenter + 5, laneCenter + 5, laneCenter - 5}, 3);
           } else {
-            g.fillPolygon(new double[]{x, x + 9, x + 4.5}, new double[]{laneCenter - 5, laneCenter - 5, laneCenter + 5},
-                3);
+            g.fillPolygon(new double[]{x, x + 9, x + 4.5},
+                new double[]{laneCenter - 5, laneCenter - 5, laneCenter + 5}, 3);
           }
           g.setFont(Font.font("Share Tech Mono", 11));
           g.setTextBaseline(VPos.CENTER);
@@ -335,31 +281,64 @@ public class ScoreView extends Canvas {
       }
     }
 
-    // bar-number ruler: one themed square at each bar start
-    for (int i = 0; i < timeline.barTimes().size(); i++) {
-      TabParser.BarTime bt = timeline.barTimes().get(i);
-      double x = x0 + bt.startSeconds() * pps + 2;
-      boolean selected = i >= Math.min(selFirst, selLast) && i <= Math.max(selFirst, selLast) && selFirst >= 0;
+    // bar-number ruler: one themed square per bar start
+    for (int bar = firstBar; bar <= lastBar; bar++) {
+      double x = layout.xForCol(layout.colForBar(bar)) + 2;
+      boolean selected = selFirst >= 0 && bar >= Math.min(selFirst, selLast)
+          && bar <= Math.max(selFirst, selLast);
       g.setFill(selected ? Color.web("#7FE7F5") : CYAN);
-      g.fillRoundRect(x, 4, 18, HEADER_H - 10, 3, 3);
+      g.fillRoundRect(x, yTop + 4, 22, HEADER_H - 10, 3, 3);
       if (selected) {
         g.setStroke(SILVER);
         g.setLineWidth(1);
-        g.strokeRoundRect(x, 4, 18, HEADER_H - 10, 3, 3);
+        g.strokeRoundRect(x, yTop + 4, 22, HEADER_H - 10, 3, 3);
       }
       g.setFill(INK);
       g.setFont(Font.font("Share Tech Mono", 12));
       g.setTextBaseline(VPos.CENTER);
-      g.fillText(String.valueOf(i + 1), x + 9, 4 + (HEADER_H - 10) / 2.0);
+      g.fillText(String.valueOf(bar + 1), x + 11, yTop + 4 + (HEADER_H - 10) / 2.0);
     }
 
     // playback cursor
-    if (cursorSeconds >= 0) {
-      double x = x0 + cursorSeconds * pps;
+    if (hasCursor && cursorSeconds >= 0) {
+      double x = layout.xForTime(cursorSeconds);
       g.setStroke(CYAN);
       g.setLineWidth(1.5);
-      g.strokeLine(x, HEADER_H, x, h - PADDING);
+      g.strokeLine(x, yTop + HEADER_H, x, rowBottom);
     }
+  }
+
+  /** Seconds per bar (bars are uniform in the compiled timeline). */
+  private double barSecondsPx(int bar) {
+    TabParser.BarTime bt = timeline.barTimes().get(bar);
+    double len = bt.endSeconds() - bt.startSeconds();
+    return len > 0 ? len : layout.barSeconds;
+  }
+
+  /** Bar containing the given absolute time. */
+  private int eventBar(double timeOffset) {
+    int bar = (int) Math.floor(timeOffset / layout.barSeconds);
+    return Math.max(0, Math.min(layout.barCount - 1, bar));
+  }
+
+  /**
+   * Cell width for a note on its string: runs to the next note on that string
+   * within the bar (so digits never overlap), clamped to a sane range.
+   */
+  private double cellWidth(RenderCommand cmd, int bar, TabParser.BarTime bt,
+      java.util.Map<Integer, java.util.List<Double>> timesByString) {
+    double next = bt.endSeconds();
+    java.util.List<Double> times = timesByString.get(cmd.stringIndex());
+    if (times != null) {
+      for (double time : times) {
+        if (time > cmd.timeOffset() + 0.001) {
+          next = Math.min(next, time);
+          break; // sorted: first later note wins
+        }
+      }
+    }
+    double gapSeconds = next - cmd.timeOffset();
+    return Math.max(10, Math.min(26, gapSeconds * barSecondsPx(bar) - 2));
   }
 
   /**
