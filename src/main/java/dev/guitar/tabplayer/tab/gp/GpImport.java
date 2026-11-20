@@ -799,18 +799,27 @@ public final class GpImport {
         out.append("# ").append(w).append('\n');
       }
 
-      int barIndex = 0;
-      // The tab grammar reads a run of adjacent digits as ONE fret, so notes
-      // on the same string must keep at least one empty column between them.
-      // Pass 1 finds the uniform bar width (widened when separation pushes
-      // glyphs past 16 columns); pass 2 renders. Resolution is deterministic,
-      // so both passes produce identical placements.
-      int barWidth = 16;
-      for (int bar = 0; bar < barCount; bar++) {
-        barWidth = Math.max(barWidth, resolveExtent(selected.bars.get(bar)));
+      // time signatures: warn when they can't be honored exactly
+      java.util.Set<String> meters = new java.util.HashSet<>();
+      for (MasterBar mb : masterBars) {
+        meters.add(mb.numerator + "/" + mb.denominator);
       }
-      if (barWidth > 16) {
-        warn("dense bars — grid widened to " + barWidth + " columns");
+      if (meters.size() > 1) {
+        warn("mixed time signatures (" + String.join(", ", meters)
+            + ") — all bars play at equal lengths");
+      } else if (!meters.contains("4/4")) {
+        warn("time signature " + meters.iterator().next() + " — bars play as 4 beats");
+      }
+
+      int barIndex = 0;
+      // Pass 1: resolve every bar's placements (sustain fills + separation)
+      // to find the uniform render width — the tab parser normalizes time by
+      // the median bar width, so all bars must render equally wide.
+      int barWidth = 0;
+      for (int bar = 0; bar < barCount; bar++) {
+        MasterBar mb = masterBars.get(bar);
+        List<Beat> beats = selected.bars.size() > bar ? selected.bars.get(bar) : List.of();
+        barWidth = Math.max(barWidth, renderBarInto(null, beats, mb));
       }
       while (barIndex < barCount) {
         int barsInLine = Math.min(4, barCount - barIndex);
@@ -819,6 +828,7 @@ public final class GpImport {
           lines[s] = new StringBuilder("EADGBe".charAt(s) + "|");
         }
         for (int b = 0; b < barsInLine; b++) {
+          MasterBar mb = masterBars.get(barIndex + b);
           List<Beat> beats = selected.bars.size() > barIndex + b
               ? selected.bars.get(barIndex + b)
               : List.of();
@@ -826,36 +836,7 @@ public final class GpImport {
           for (int s = 0; s < 6; s++) {
             java.util.Arrays.fill(cells[s], ' ');
           }
-          // The tab parser treats every bar as 4 beats, so bars whose content
-          // exceeds 4 quarters (common in hand-made files) are scaled into the
-          // grid instead of dropping the excess notes.
-          double total = 0;
-          for (Beat beat : beats) {
-            total += durationQuarters(beat);
-          }
-          double pos = 0;
-          int[] prevEnd = new int[6];
-          for (Beat beat : beats) {
-            double quarters = durationQuarters(beat);
-            int col = total > 4.0
-                ? (int) Math.round(pos / total * 15)
-                : (int) Math.round(pos * 4);
-            for (NoteEvent note : beat.notes) {
-              if (note.stringIndex < 0 || note.stringIndex > 5) {
-                continue;
-              }
-              String glyph = note.dead ? "x" : Integer.toString(note.fret);
-              int start = prevEnd[note.stringIndex] > 0
-                  ? Math.max(col, prevEnd[note.stringIndex] + 1)
-                  : Math.max(col, 0);
-              for (int k = 0; k < glyph.length() && start + k < barWidth; k++) {
-                cells[note.stringIndex][start + k] = glyph.charAt(k);
-              }
-              prevEnd[note.stringIndex] = Math.max(prevEnd[note.stringIndex],
-                  start + glyph.length());
-            }
-            pos += quarters;
-          }
+          renderBarInto(cells, beats, mb);
           for (int s = 0; s < 6; s++) {
             lines[s].append(cells[s]).append('|');
           }
@@ -872,38 +853,84 @@ public final class GpImport {
     }
 
     /**
-     * Pass-1 twin of the render loop: resolves note placements for one bar
-     * (pushing same-string notes apart) and returns the column just past the
-     * last glyph — the width the bar needs.
+     * Renders one bar into `cells` (may be null for the measuring pass). The
+     * grid scale comes from the bar's time signature (columns = numerator x
+     * 16 / denominator, so 4/4 = 16 sixteenth-columns). Notes repeat their
+     * digit across their duration (tab convention for held notes), up to the
+     * next event on the same string minus one separating column. Notes on
+     * the same string always keep at least one empty column between tokens
+     * (the tab grammar reads adjacent digits as one fret). Returns the
+     * column count the bar's content needs.
      */
-    private int resolveExtent(List<Beat> beats) {
+    private int renderBarInto(char[][] cells, List<Beat> beats, MasterBar mb) {
+      boolean measure = cells == null;
+      int cols = Math.max(8, mb.numerator * 16 / mb.denominator);
+      double quartersAvailable = cols / 4.0;
+      if (measure) {
+        cells = new char[6][cols + 32]; // headroom for separation pushes
+      }
+      for (int s = 0; s < 6; s++) {
+        java.util.Arrays.fill(cells[s], ' ');
+      }
+      // content longer than the meter (common in hand-made files) is scaled
+      // into the grid instead of dropping the excess notes
       double total = 0;
       for (Beat beat : beats) {
         total += durationQuarters(beat);
       }
+      double scale = total > quartersAvailable ? (double) (cols - 1) / total
+          : cols / quartersAvailable;
+
+      // per-string placed notes in time order: {col, fret} (-1 = dead)
+      @SuppressWarnings("unchecked")
+      List<int[]>[] byString = new List[6];
+      for (int s = 0; s < 6; s++) {
+        byString[s] = new ArrayList<>();
+      }
       double pos = 0;
-      int[] prevEnd = new int[6];
-      int extent = 0;
       for (Beat beat : beats) {
         double quarters = durationQuarters(beat);
-        int col = total > 4.0
-            ? (int) Math.round(pos / total * 15)
-            : (int) Math.round(pos * 4);
+        int col = (int) Math.round(pos * scale);
         for (NoteEvent note : beat.notes) {
-          if (note.stringIndex < 0 || note.stringIndex > 5) {
-            continue;
+          if (note.stringIndex >= 0 && note.stringIndex <= 5) {
+            byString[note.stringIndex].add(new int[]{col, note.dead ? -1 : note.fret});
           }
-          String glyph = note.dead ? "x" : Integer.toString(note.fret);
-          int start = prevEnd[note.stringIndex] > 0
-              ? Math.max(col, prevEnd[note.stringIndex] + 1)
-              : Math.max(col, 0);
-          prevEnd[note.stringIndex] = Math.max(prevEnd[note.stringIndex],
-              start + glyph.length());
-          extent = Math.max(extent, start + glyph.length());
         }
         pos += quarters;
       }
-      return extent;
+
+      int extent = 0;
+      for (int s = 0; s < 6; s++) {
+        List<int[]> placed = byString[s];
+        int prevEnd = -1; // exclusive column after the last glyph/fill
+        for (int k = 0; k < placed.size(); k++) {
+          int fret = placed.get(k)[1];
+          boolean dead = fret < 0;
+          String glyph = dead ? "x" : Integer.toString(fret);
+          int col = placed.get(k)[0];
+          int start = prevEnd >= 0 ? Math.max(col, prevEnd + 1) : Math.max(col, 0);
+          for (int c = start; c < start + glyph.length() && c < cells[s].length; c++) {
+            cells[s][c] = glyph.charAt(c - start);
+          }
+          int last = start + glyph.length() - 1;
+          // sustain fill: repeat single-digit frets up to the next event on
+          // this string (minus one separating column) or the meter's end —
+          // never past the meter (fills are time-based, not separation-driven)
+          if (!dead && glyph.length() == 1) {
+            int fillEnd = k + 1 < placed.size()
+                ? Math.min(placed.get(k + 1)[0] - 2, cols - 1)
+                : cols - 1;
+            for (int c = start + 1; c <= fillEnd; c++) {
+              cells[s][c] = glyph.charAt(0);
+            }
+            last = Math.max(last, fillEnd);
+          }
+          prevEnd = last + 1;
+          extent = Math.max(extent, last + 1);
+        }
+      }
+      // a bar is never narrower than its own time signature's grid
+      return Math.max(extent, cols);
     }
 
     private double durationQuarters(Beat beat) {

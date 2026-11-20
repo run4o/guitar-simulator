@@ -230,7 +230,10 @@ class Phase3ParserTest {
 
     @Test
     void outOfRangeFretIsClampedWithWarning() {
-        TabParser.TabTimeline timeline = TabParser.compile("e|--99--|\n");
+        // mixed digit runs are one fret number: 2424 overflows and clamps.
+        // ("99" alone would now read as a sustained fret 9 — tab sustain
+        // convention.)
+        TabParser.TabTimeline timeline = TabParser.compile("e|--2424--|\n");
         RenderCommand pluck = firstOf(timeline, GuitarEngine.EVENT_PLUCK, 5);
         assertEquals(24, pluck.fret());
         assertTrue(timeline.warnings().stream().anyMatch(w -> w.contains("out of range")));
@@ -273,5 +276,42 @@ class Phase3ParserTest {
         // high E open = 329.63 Hz, fret 3 = 392.0 Hz
         assertNear(WavAnalysis.detectPitch(parsed, 0.45, 0.7), 329.63f, 8.0f, "first note pitch");
         assertNear(WavAnalysis.detectPitch(parsed, 2.45, 3.1), 392.0f, 8.0f, "second note pitch");
+    }
+
+    @Test
+    void repeatedDigitRunsAreSustainedNotesNotRePlucks() {
+        // tab convention: holding a digit across columns sustains the note —
+        // the run must yield ONE pluck, not a re-attack per column, and not a
+        // giant fret number
+        TabParser.TabTimeline timeline = TabParser.compile("""
+                e|-----------------|-----------------|
+                B|-----------------|-----------------|
+                G|-----------------|-----------------|
+                D|-----------------|-----------------|
+                A|-----------------|-----------------|
+                E|33333333---------|-----------------|
+                """, 120);
+
+        List<RenderCommand> plucks = ofType(timeline, 0); // PLUCK
+        long onLowE = plucks.stream().filter(c -> c.stringIndex() == 0).count();
+        assertEquals(1, onLowE, "a sustained digit run must produce exactly one pluck");
+        RenderCommand pluck = firstOf(timeline, 0, 0);
+        assertEquals(3, pluck.fret(), "the run's fret comes from the repeated digit");
+    }
+
+    @Test
+    void mixedDigitRunsStayFretNumbers() {
+        // different adjacent digits remain one multi-digit fret number
+        TabParser.TabTimeline timeline = TabParser.compile("""
+                e|-----------------|-----------------|
+                B|-----------------|-----------------|
+                G|-----------------|-----------------|
+                D|-----------------|-----------------|
+                A|-----------------|-----------------|
+                E|12---------------|-----------------|
+                """, 120);
+
+        RenderCommand pluck = firstOf(timeline, 0, 0);
+        assertEquals(12, pluck.fret(), "'12' is fret twelve");
     }
 }

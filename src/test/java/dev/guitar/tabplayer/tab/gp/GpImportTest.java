@@ -26,7 +26,7 @@ class GpImportTest {
   @Test
   void parsesMinimalGp5File() throws IOException {
     Path file = tempDir.resolve("test.gp5");
-    Files.write(file, gp5Fixture(2, 0, null));
+    Files.write(file, gp5Fixture(2, 0, null, 4, 4));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -34,8 +34,9 @@ class GpImportTest {
     assertEquals("Test Song", song.title());
     assertEquals("RHYTHM GTR", song.trackName());
     String ascii = song.ascii();
-    // first bar: fret 3 on the high e string at column 0, dead note at column 6
-    assertTrue(ascii.contains("e|3     x"), "expected 'e|3     x' but got:\n" + ascii);
+    // first bar: fret 3 sustains across its quarter (tab convention), dead
+    // note at column 6 after one separating column
+    assertTrue(ascii.contains("e|33333 x"), "expected 'e|33333 x' but got:\n" + ascii);
     // second bar: all rests (empty cells between the two pipes)
     assertTrue(ascii.contains("|                |"), "expected empty second bar:\n" + ascii);
     // header comment carries the title
@@ -47,7 +48,7 @@ class GpImportTest {
     // Regression: the generator used to overwrite every system with the last
     // one, so songs with more than 4 bars collapsed to their final bars.
     Path file = tempDir.resolve("sixbars.gp5");
-    Files.write(file, gp5Fixture(6, 0, null));
+    Files.write(file, gp5Fixture(6, 0, null, 4, 4));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -60,7 +61,7 @@ class GpImportTest {
     // Regression: bars whose beats exceed 4 quarters had all excess notes
     // dropped; they must be scaled into the grid instead.
     Path file = tempDir.resolve("overfull.gp5");
-    Files.write(file, gp5Fixture(1, 9, null));
+    Files.write(file, gp5Fixture(1, 9, null, 4, 4));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
@@ -72,38 +73,66 @@ class GpImportTest {
   }
 
   @Test
+  void sizesBarsToTheirTimeSignature() throws IOException {
+    // 3/4 -> 12 sixteenth-columns; 7/8 -> 14
+    Path waltz = tempDir.resolve("waltz.gp5");
+    Files.write(waltz, gp5Fixture(2, 0, null, 3, 4));
+    String ascii = GpImport.importFile(waltz).ascii();
+    for (String line : ascii.lines().filter(l -> l.startsWith("e|")).toList()) {
+      assertEquals(12, line.indexOf('|', 2) - 2, "3/4 bar grid:\n" + ascii);
+    }
+
+    Path seven = tempDir.resolve("seven.gp5");
+    Files.write(seven, gp5Fixture(2, 0, null, 7, 8));
+    String sevenAscii = GpImport.importFile(seven).ascii();
+    for (String line : sevenAscii.lines().filter(l -> l.startsWith("e|")).toList()) {
+      assertEquals(14, line.indexOf('|', 2) - 2, "7/8 bar grid:\n" + sevenAscii);
+    }
+  }
+
+  @Test
+  void sustainsHeldNotesToTheBarEnd() throws IOException {
+    // one quarter note, nothing after it: the digit fills the whole bar
+    Path file = tempDir.resolve("sustain.gp5");
+    Files.write(file, gp5Fixture(1, 0, new int[]{5}, 4, 4));
+
+    String ascii = GpImport.importFile(file).ascii();
+    String eLine = ascii.lines().filter(l -> l.startsWith("E|")).findFirst().orElse("");
+    assertTrue(eLine.contains("5555555555555555"), "held note must fill the bar:\n" + ascii);
+  }
+
+  @Test
   void separatesAdjacentChugNotes() throws IOException {
     // Regression: 16th-note chugs landed on consecutive grid columns, merging
     // into one giant digit run ("7000500070003") that overflowed the tab
     // parser's fret parsing and aborted the whole import.
     Path file = tempDir.resolve("chugs.gp5");
     int[] chugs = {7, 0, 0, 0, 5, 0, 0, 0, 7, 0, 0, 0, 3, 0, 0, 0};
-    Files.write(file, gp5Fixture(2, 0, chugs));
+    Files.write(file, gp5Fixture(2, 0, chugs, 4, 4));
 
     GpImport.GpSong song = GpImport.importFile(file);
 
     String ascii = song.ascii();
-    for (String line : ascii.split("\n", -1)) {
-      if (line.startsWith("#")) {
-        continue; // comment lines are not tab content ("120 BPM" etc.)
-      }
-      assertTrue(line.matches(".*[0-9]{3,}.*") == false,
-          "digit run longer than 2 merged into one fret token: " + line);
-    }
-    // the generated tab must compile without throwing
-    dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+    // the generated tab must compile without throwing and without fret
+    // overflows (adjacent digits must not merge into giant fret numbers)
+    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+    assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("out of range")),
+        "chugs must not merge into overflowing fret runs: warnings = " + timeline.warnings());
+    // the chugs stay separated (one space between different notes)
+    assertTrue(ascii.contains("7 0 0 0 5"), "chugs must stay separated:\n" + ascii);
   }
 
   /* ------------------------------------------------------------------ */
 
   /**
-   * Builds a minimal GP5.1 file with `bars` measures and 1 track. When
-   * `overfullFrets` > 0, bar 0 contains that many quarter notes (frets 1..N
-   * on the high e string) whose total duration exceeds the 4/4 bar. When
-   * `chugFrets` is non-null, bar 0 contains that many sixteenth notes with
-   * those frets on the low E string instead.
+   * Builds a minimal GP5.1 file with `bars` measures and 1 track in the given
+   * time signature. When `overfullFrets` > 0, bar 0 contains that many quarter
+   * notes (frets 1..N on the high e string) whose total duration exceeds the
+   * bar. When `chugFrets` is non-null, bar 0 contains that many sixteenth
+   * notes with those frets on the low E string instead.
    */
-  private static byte[] gp5Fixture(int bars, int overfullFrets, int[] chugFrets) throws IOException {
+  private static byte[] gp5Fixture(int bars, int overfullFrets, int[] chugFrets,
+      int numerator, int denominator) throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     DataOutputStream d = new DataOutputStream(out);
 
@@ -157,10 +186,10 @@ class GpImportTest {
     writeIntLE(d, bars); // bars
     writeIntLE(d, 1); // tracks
 
-    // master bar 0: time signature 4/4 declared
+    // master bar 0: time signature declared
     d.writeByte(0x03);
-    d.writeByte(4);
-    d.writeByte(4);
+    d.writeByte(numerator);
+    d.writeByte(denominator);
     d.write(new byte[4]); // time sig beams
     d.writeByte(0); // alternate endings
     d.writeByte(0); // triplet feel

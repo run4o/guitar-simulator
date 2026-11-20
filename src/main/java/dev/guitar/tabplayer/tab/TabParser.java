@@ -379,10 +379,26 @@ public final class TabParser {
         while (j < n && content.charAt(j) >= '0' && content.charAt(j) <= '9') {
           j++;
         }
-        int fret = Integer.parseInt(content, i, j, 10);
-        if (fret > MAX_FRET) {
-          warnings.add("Fret " + fret + " out of range, clamped to " + MAX_FRET);
-          fret = MAX_FRET;
+        // A run of ONE repeated digit is a sustained note (tab convention:
+        // hold the digit for the run's length) — a single pluck at the run
+        // start, the rest just holds the columns. Mixed runs are multi-digit
+        // fret numbers (e.g. "12").
+        boolean sameDigit = true;
+        for (int k = i + 1; k < j; k++) {
+          if (content.charAt(k) != c) {
+            sameDigit = false;
+            break;
+          }
+        }
+        int fret;
+        if (sameDigit) {
+          fret = c - '0';
+        } else {
+          fret = Integer.parseInt(content, i, j, 10);
+          if (fret > MAX_FRET) {
+            warnings.add("Fret " + fret + " out of range, clamped to " + MAX_FRET);
+            fret = MAX_FRET;
+          }
         }
         track.tokens.add(new Token(i, Kind.NOTE, fret));
         i = j;
