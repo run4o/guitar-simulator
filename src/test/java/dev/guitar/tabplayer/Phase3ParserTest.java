@@ -314,4 +314,28 @@ class Phase3ParserTest {
         RenderCommand pluck = firstOf(timeline, 0, 0);
         assertEquals(12, pluck.fret(), "'12' is fret twelve");
     }
+
+    @Test
+    void importedTimeSignaturesTravelWithTheTimeline() {
+        var meters = new java.util.HashMap<Integer, int[]>();
+        meters.put(0, new int[]{7, 8});
+        meters.put(1, new int[]{3, 4});
+        TabParser.TabTimeline timeline = TabParser.compile("""
+                e|-----------------|-----------------|-----------------|
+                B|-----------------|-----------------|-----------------|
+                G|-----------------|-----------------|-----------------|
+                D|--2--2--2--2--2-5|--2--2--2--2--2-5|--2--2--2--2--2-5|
+                A|--2--2--2--2--2-5|--2--2--2--2--2-5|--2--2--2--2--2-5|
+                E|--0--0--0--0--0-3|--0--0--0--0--0-3|--0--0--0--0--0-3|
+                """, 120, meters);
+
+        assertEquals(3, timeline.timeSignatures().size());
+        assertEquals(7, timeline.timeSignatures().get(0)[0]);
+        assertEquals(8, timeline.timeSignatures().get(0)[1]);
+        assertEquals(3, timeline.timeSignatures().get(1)[0]);
+        assertEquals(4, timeline.timeSignatures().get(1)[1]);
+        // bars beyond the sparse map default to 4/4
+        assertEquals(4, timeline.timeSignatures().get(2)[0]);
+        assertEquals(4, timeline.timeSignatures().get(2)[1]);
+    }
 }

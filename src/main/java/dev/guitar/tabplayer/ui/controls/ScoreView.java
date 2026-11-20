@@ -238,6 +238,7 @@ public class ScoreView extends Canvas {
       double laneCenter = yTop + HEADER_H + PADDING + cmd.stringIndex() * lh + lh / 2.0;
       double cellW = cellWidth(cmd, bt, barPps, timesByString);
       double cellH = Math.min(lh - 4, 20.0);
+      double onsetW = Math.min(cellW, 24.0); // the fret digit stays at the onset
       switch (cmd.type()) {
         case RenderCommandType.PLUCK -> {
           g.setFill(CYAN);
@@ -245,7 +246,7 @@ public class ScoreView extends Canvas {
           g.setFill(INK);
           g.setFont(Font.font("Share Tech Mono", cellH >= 18 ? 12 : 10));
           g.setTextBaseline(VPos.CENTER);
-          g.fillText(String.valueOf(cmd.fret()), x + cellW / 2, laneCenter);
+          g.fillText(String.valueOf(cmd.fret()), x + onsetW / 2, laneCenter);
         }
         case RenderCommandType.LEGATO -> {
           g.setStroke(CYAN);
@@ -254,7 +255,7 @@ public class ScoreView extends Canvas {
           g.setFill(CYAN);
           g.setFont(Font.font("Share Tech Mono", cellH >= 18 ? 12 : 10));
           g.setTextBaseline(VPos.CENTER);
-          g.fillText(String.valueOf(cmd.fret()), x + cellW / 2, laneCenter);
+          g.fillText(String.valueOf(cmd.fret()), x + onsetW / 2, laneCenter);
         }
         case RenderCommandType.BEND -> {
           g.setFill(Color.web("#E01212"));
@@ -297,6 +298,17 @@ public class ScoreView extends Canvas {
       g.setFont(Font.font("Share Tech Mono", 12));
       g.setTextBaseline(VPos.CENTER);
       g.fillText(String.valueOf(bar + 1), x + 11, yTop + 4 + (HEADER_H - 10) / 2.0);
+
+      // time signature, drawn at bar 1 and wherever the meter changes
+      int[] sig = meterAt(bar);
+      int[] prev = bar > 0 ? meterAt(bar - 1) : new int[]{-1, -1};
+      if (sig[0] != prev[0] || sig[1] != prev[1]) {
+        g.setFill(SILVER);
+        g.setFont(Font.font("Share Tech Mono", 11));
+        g.setTextBaseline(VPos.CENTER);
+        g.fillText(String.valueOf(sig[0]), x + 28, yTop + 10);
+        g.fillText(String.valueOf(sig[1]), x + 28, yTop + 21);
+      }
     }
 
     // playback cursor
@@ -306,6 +318,14 @@ public class ScoreView extends Canvas {
       g.setLineWidth(1.5);
       g.strokeLine(x, yTop + HEADER_H, x, rowBottom);
     }
+  }
+
+  /** Time signature of the given bar (defaults 4/4). */
+  private int[] meterAt(int bar) {
+    if (timeline == null || bar < 0 || bar >= timeline.timeSignatures().size()) {
+      return new int[]{4, 4};
+    }
+    return timeline.timeSignatures().get(bar);
   }
 
   /** Seconds per bar (bars are uniform in the compiled timeline). */
@@ -322,8 +342,9 @@ public class ScoreView extends Canvas {
   }
 
   /**
-   * Cell width for a note on its string: runs to the next note on that string
-   * within the bar (so digits never overlap), clamped to a sane range.
+   * Cell width for a note on its string: the note's full duration — to the
+   * next event on that string or the bar end — so held notes render as
+   * elongated cells (the tab's sustain convention), clamped to the bar.
    */
   private double cellWidth(RenderCommand cmd, TabParser.BarTime bt, double barPps,
       java.util.Map<Integer, java.util.List<Double>> timesByString) {
@@ -337,8 +358,7 @@ public class ScoreView extends Canvas {
         }
       }
     }
-    double gapSeconds = next - cmd.timeOffset();
-    return Math.max(10, Math.min(26, gapSeconds * barPps - 2));
+    return Math.max(10, (next - cmd.timeOffset()) * barPps - 2);
   }
 
   /**

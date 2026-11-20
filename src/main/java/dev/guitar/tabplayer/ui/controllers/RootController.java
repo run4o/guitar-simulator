@@ -65,6 +65,7 @@ public class RootController {
       soundPanelController.updateStringLabels(tuning);
       tunerPanelController.updateTuning(tuning);
       ctx.applyTuning(tuning);
+      refreshScoreLabels(); // lane labels must not wait for the next compile
     });
     guitarPanelController.setBpmListener(playback::requestBpm);
     soundPanelController.init(ctx);
@@ -218,13 +219,22 @@ public class RootController {
     try {
       dev.guitar.tabplayer.tab.gp.GpImport.GpSong song =
           dev.guitar.tabplayer.tab.gp.GpImport.importFile(file);
-      tabPanelController.replaceTabText(song.ascii());
+      tabPanelController.replaceImportedTab(song.ascii(), songMeterMap(song));
       guitarPanelController.setBpm(song.bpm());
       ctx.status("IMPORTED " + file.getFileName().toString().toUpperCase()
           + " — " + song.trackName() + " @ " + song.bpm() + " BPM");
     } catch (Exception e) {
       ctx.status("GP IMPORT FAILED: " + e.getMessage());
     }
+  }
+
+  /** Per-bar time signatures as a sparse bar-index map for the compiler. */
+  private java.util.Map<Integer, int[]> songMeterMap(dev.guitar.tabplayer.tab.gp.GpImport.GpSong song) {
+    java.util.Map<Integer, int[]> map = new java.util.HashMap<>();
+    for (int i = 0; i < song.meters().size(); i++) {
+      map.put(i, song.meters().get(i));
+    }
+    return map;
   }
 
   private void saveProject(java.nio.file.Path file) {
@@ -295,11 +305,27 @@ public class RootController {
    * are derived from the selected tuning.
    */
   private void onTimelinePublished(TabParser.TabTimeline timeline) {
+    tabPanelController.showTimeline(timeline, laneLabels());
+  }
+
+  /**
+   * Re-publishes the current timeline with fresh lane labels — called when
+   * the tuning changes so the score updates immediately, not just at the
+   * next compile.
+   */
+  private void refreshScoreLabels() {
+    TabParser.TabTimeline timeline = playback.currentTimeline();
+    if (timeline != null) {
+      tabPanelController.showTimeline(timeline, laneLabels());
+    }
+  }
+
+  private String[] laneLabels() {
     Tuning tuning = guitarPanelController.getTuning();
     String[] labels = new String[6];
     for (int s = 0; s < 6; s++) {
       labels[s] = tuning != null ? AppContext.noteName(tuning.freqs[s]) : "--";
     }
-    tabPanelController.showTimeline(timeline, labels);
+    return labels;
   }
 }

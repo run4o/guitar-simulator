@@ -72,7 +72,7 @@ public final class TabParser {
                           int width) {}
 
   public record TabTimeline(List<TabEvent> events, List<RenderCommand> commands, List<BarTime> barTimes,
-                            double durationSeconds, List<String> warnings) {}
+                            double durationSeconds, List<String> warnings, List<int[]> timeSignatures) {}
 
   private enum Kind {
     NOTE,
@@ -130,6 +130,15 @@ public final class TabParser {
   }
 
   public static TabTimeline compile(String text, double bpm) {
+    return compile(text, bpm, null);
+  }
+
+  /**
+   * @param timeSignatures sparse bar-index -> {numerator, denominator} map
+   *     (null or missing bars default to 4/4); used by the score view's
+   *     meter display. Bars beyond the map default too.
+   */
+  public static TabTimeline compile(String text, double bpm, java.util.Map<Integer, int[]> timeSignatures) {
     if (bpm <= 0) {
       bpm = DEFAULT_BPM;
     }
@@ -155,8 +164,15 @@ public final class TabParser {
       commands.add(event.command());
     }
     double duration = commands.isEmpty() ? 1.0 : commands.get(commands.size() - 1).timeOffset() + RING_OUT_SECONDS;
+    // dense per-bar time signatures (imported meters; 4/4 elsewhere)
+    List<int[]> timeSigs = new ArrayList<>();
+    for (int i = 0; i < barTimes.size(); i++) {
+      int[] sig = timeSignatures != null ? timeSignatures.get(i) : null;
+      timeSigs.add(sig != null && sig.length == 2 && sig[0] > 0 && sig[1] > 0
+          ? new int[]{sig[0], sig[1]} : new int[]{4, 4});
+    }
     return new TabTimeline(List.copyOf(events), List.copyOf(commands), List.copyOf(barTimes), duration,
-        List.copyOf(warnings));
+        List.copyOf(warnings), List.copyOf(timeSigs));
   }
 
   /* ------------------------------------------------------------------

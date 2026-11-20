@@ -21,7 +21,8 @@ import java.util.List;
  */
 public final class GpImport {
 
-  public record GpSong(String ascii, int bpm, String title, String trackName, List<String> warnings) {
+  public record GpSong(String ascii, int bpm, String title, String trackName, List<String> warnings,
+      List<int[]> meters) {
   }
 
   private GpImport() {
@@ -758,7 +759,7 @@ public final class GpImport {
 
     /**
      * Picks the first non-percussion 6-string track and lays its first voice
-     * out on a fixed 16-column-per-bar grid (sixteenth notes at 4/4).
+     * out on a per-meter column grid (16 columns for 4/4).
      */
     private GpSong buildSong() {
       Track selected = null;
@@ -848,8 +849,12 @@ public final class GpImport {
         barIndex += barsInLine;
       }
 
+      List<int[]> perBarMeters = new ArrayList<>();
+      for (MasterBar mb : masterBars) {
+        perBarMeters.add(new int[]{mb.numerator, mb.denominator});
+      }
       return new GpSong(out.toString().stripTrailing(), Math.max(40, Math.min(300, bpm)),
-          title, selected.name, List.copyOf(warnings));
+          title, selected.name, List.copyOf(warnings), List.copyOf(perBarMeters));
     }
 
     /**

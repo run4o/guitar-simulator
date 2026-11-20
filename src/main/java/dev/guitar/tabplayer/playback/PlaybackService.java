@@ -35,6 +35,7 @@ public final class PlaybackService {
 
   // Bar-streaming sequencer state (cursor anchors are read by the 50 ms poll)
   private volatile TabParser.TabTimeline currentTimeline;
+  private volatile java.util.Map<Integer, int[]> meters; // imported per-bar time signatures
   private volatile String playingText;   // tab snapshot taken at play start (text can't change mid-play)
   private volatile int sequencerBpm = 120;
   private volatile boolean bpmChangePending;
@@ -131,7 +132,13 @@ public final class PlaybackService {
    * Compiles the given tab text at the live tempo and publishes it to the UI.
    */
   public TabParser.TabTimeline compileAndPublish(String text) {
-    TabParser.TabTimeline timeline = TabParser.compile(text, sequencerBpm);
+    return compileAndPublish(text, null);
+  }
+
+  /** @param meters sparse per-bar time signatures carried over from an import */
+  public TabParser.TabTimeline compileAndPublish(String text, java.util.Map<Integer, int[]> meters) {
+    this.meters = meters;
+    TabParser.TabTimeline timeline = TabParser.compile(text, sequencerBpm, meters);
     currentTimeline = timeline;
     publish(timeline);
     return timeline;
@@ -286,7 +293,7 @@ public final class PlaybackService {
   }
 
   private TabParser.TabTimeline compileData() {
-    return TabParser.compile(playingText != null ? playingText : "", sequencerBpm);
+    return TabParser.compile(playingText != null ? playingText : "", sequencerBpm, meters);
   }
 
   /**

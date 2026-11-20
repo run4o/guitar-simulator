@@ -30,6 +30,7 @@ public class TabPanelController {
   private PlaybackService playback;
 
   private boolean sourceMode;
+  private java.util.Map<Integer, int[]> importedMeters; // per-bar meters from the last GP import
   private TabBlocks.BarBlock blockClipboard;
   private int selFirst = -1;
   private int selLast = -1;
@@ -175,6 +176,7 @@ public class TabPanelController {
   }
 
   private void setTabText(String newText) {
+    importedMeters = null; // edits with the bar operations drop import meters
     sourcePanelController.setText(newText);
     selFirst = selLast = -1;
     scorePanelController.setSelection(-1, -1);
@@ -258,7 +260,25 @@ public class TabPanelController {
 
   /** Public entry for menu wiring: swap the whole tab text and recompile. */
   public void replaceTabText(String newText) {
-    setTabText(newText);
+    importedMeters = null; // non-import sources carry no per-bar meters
+    applyTabText(newText);
+  }
+
+  /**
+   * GP import path: replaces the tab text and carries the imported per-bar
+   * time signatures into subsequent compiles (until the text is replaced by
+   * a non-import source or edited with the bar operations).
+   */
+  public void replaceImportedTab(String newText, java.util.Map<Integer, int[]> meters) {
+    this.importedMeters = meters;
+    applyTabText(newText);
+  }
+
+  private void applyTabText(String newText) {
+    sourcePanelController.setText(newText);
+    selFirst = selLast = -1;
+    scorePanelController.setSelection(-1, -1);
+    compileCurrent();
   }
 
   /**
@@ -270,6 +290,7 @@ public class TabPanelController {
       if (playback.isPlaying()) {
         playback.stop();
       }
+      importedMeters = null; // plain tab files carry no meters
       sourcePanelController.setText(Files.readString(file));
       selFirst = selLast = -1;
       scorePanelController.setSelection(-1, -1);
