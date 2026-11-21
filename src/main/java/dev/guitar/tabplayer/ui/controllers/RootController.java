@@ -84,6 +84,7 @@ public class RootController {
       guitarPanelController.selectTuningNamed(tuningProp);
     }
     soundPanelController.updateStringLabels(guitarPanelController.getTuning());
+    tunerPanelController.updateTuning(guitarPanelController.getTuning());
 
     ctx.status(ctx.engineReady()
         ? (ctx.deviceRunning() ? "READY — EDIT THE TAB, THEN PLAY"

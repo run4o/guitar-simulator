@@ -44,6 +44,9 @@ class TuningTest {
     assertFreqs(Tuning.OPEN_E, 82.41, 123.47, 164.81, 207.65, 246.94, 329.63);
     assertFreqs(Tuning.OPEN_G, 73.42, 98.00, 146.83, 196.00, 246.94, 293.66);
     assertFreqs(Tuning.DADGAD, 73.42, 110.00, 146.83, 196.00, 220.00, 293.66);
+    // the guide-sample tuning: C# standard set with a low C
+    assertFreqs(Tuning.C_SHARP_LOW_C, 65.41, 92.50, 123.47, 164.81, 207.65, 277.18);
+    assertEquals(Tuning.C_SHARP_LOW_C, Tuning.values()[0], "guide tuning must be the boot default");
   }
 
   private static void assertFreqs(Tuning tuning, double... expected) {

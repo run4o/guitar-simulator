@@ -5,6 +5,7 @@ package dev.guitar.tabplayer.model;
  * frequencies in Hz (low E first).
  */
 public enum Tuning {
+  C_SHARP_LOW_C("C# LOW C", new double[]{65.41, 92.50, 123.47, 164.81, 207.65, 277.18}),
   STANDARD("STANDARD", new double[]{82.41, 110.00, 146.83, 196.00, 246.94, 329.63}),
   DROP_D("DROP D", new double[]{73.42, 110.00, 146.83, 196.00, 246.94, 329.63}),
   DROP_C("DROP C", new double[]{65.41, 98.00, 130.81, 174.61, 220.00, 293.66}),
