@@ -71,8 +71,24 @@ public final class TabParser {
   public record TabSystem(int index, int[] stringIndices, char[] labels, int[] contentOffsets, int[] contentLengths,
                           int width) {}
 
+  /**
+   * Structural decorations for one bar of the expanded timeline (aligned
+   * with barTimes): repeat/ending/tempo marks for the score view.
+   */
+  public record BarMarks(boolean repeatStart, int repeatEndPlays, int endingMask, double bpm) {
+    static final BarMarks NONE = new BarMarks(false, 0, 0, 0.0);
+  }
+
   public record TabTimeline(List<TabEvent> events, List<RenderCommand> commands, List<BarTime> barTimes,
-                            double durationSeconds, List<String> warnings, List<int[]> timeSignatures) {}
+                            double durationSeconds, List<String> warnings, List<int[]> timeSignatures,
+                            List<BarMarks> barMarks) {
+
+    /** Backwards-compatible view (no structural marks). */
+    public TabTimeline(List<TabEvent> events, List<RenderCommand> commands, List<BarTime> barTimes,
+                       double durationSeconds, List<String> warnings, List<int[]> timeSignatures) {
+      this(events, commands, barTimes, durationSeconds, warnings, timeSignatures, List.of());
+    }
+  }
 
   private enum Kind {
     NOTE,
@@ -158,9 +174,11 @@ public final class TabParser {
     // which ending bars each pass plays, so a pass no longer replays the
     // whole section including every ending
     Map<Integer, int[]> expandedSigs = timeSignatures == null ? null : new TreeMap<>(timeSignatures);
+    List<RepeatInfo> infos = new ArrayList<>(systems.size());
     int runningBars = 0;
     for (SystemBlock system : systems) {
       RepeatInfo info = expandRepeats(system, warnings);
+      infos.add(info);
       int barCount = barRanges(system).size();
       if (info != null && expandedSigs != null) {
         int added = barCount - info.originalBars();
@@ -210,14 +228,50 @@ public final class TabParser {
 
     List<TabEvent> events = new ArrayList<>();
     List<BarTime> barTimes = new ArrayList<>();
+    List<BarMarks> barMarks = new ArrayList<>();
     double time = 0.0;
+    double prevEffectiveBpm = Double.NaN;
     for (int sysIndex = 0; sysIndex < systems.size(); sysIndex++) {
       SystemBlock system = systems.get(sysIndex);
       double tick = tickForSystem(system, bpm);
+      double effectiveBpm = system.bpm > 0 ? system.bpm : (Double.isNaN(prevEffectiveBpm) ? bpm : prevEffectiveBpm);
+      boolean tempoChanged = !Double.isNaN(prevEffectiveBpm) && effectiveBpm != prevEffectiveBpm
+          || Double.isNaN(prevEffectiveBpm);
+      prevEffectiveBpm = effectiveBpm;
+      RepeatInfo info = infos.get(sysIndex);
+      List<BarMarks> systemMarks = new ArrayList<>();
       int barIndex = 0;
+      boolean firstBar = true;
       for (int[] range : barRanges(system)) {
         barTimes.add(new BarTime(time + range[0] * tick, time + range[1] * tick, sysIndex, barIndex++));
+        systemMarks.add(new BarMarks(false, 0, 0, tempoChanged && firstBar ? effectiveBpm : 0.0));
+        firstBar = false;
       }
+      if (info != null) {
+        // repeat/ending decorations on the flattened pass layout (keeping
+        // the tempo mark already on the bar)
+        int off = 0;
+        int plays = info.passGroup().length;
+        for (int k = 0; k < plays; k++) {
+          int len = info.passOrigLocal()[k].length;
+          BarMarks base = systemMarks.get(off);
+          systemMarks.set(off, new BarMarks(true, 0, 0, base.bpm()));
+          if (k < plays - 1) {
+            BarMarks last = systemMarks.get(off + len - 1);
+            systemMarks.set(off + len - 1, new BarMarks(last.repeatStart(), plays, 0, last.bpm()));
+          }
+          int group = info.passGroup()[k];
+          if (group >= 0) {
+            for (int b = info.bodyBars(); b < len; b++) {
+              BarMarks existing = systemMarks.get(off + b);
+              systemMarks.set(off + b, new BarMarks(existing.repeatStart(), k < plays - 1 ? plays : 0,
+                  info.groupMask()[group], existing.bpm()));
+            }
+          }
+          off += len;
+        }
+      }
+      barMarks.addAll(systemMarks);
       compileSystem(system, time, tick, events, warnings);
       // repeat expansion can push copies past the literal line width; the
       // system's clock must cover them or the next system overlaps them
@@ -249,7 +303,7 @@ public final class TabParser {
           ? new int[]{sig[0], sig[1]} : new int[]{4, 4});
     }
     return new TabTimeline(List.copyOf(events), List.copyOf(commands), List.copyOf(barTimes), duration,
-        List.copyOf(warnings), List.copyOf(timeSigs));
+        List.copyOf(warnings), List.copyOf(timeSigs), List.copyOf(barMarks));
   }
 
   /* ------------------------------------------------------------------
@@ -756,9 +810,12 @@ public final class TabParser {
 
   /**
    * Repeat-section expansion result (local to its system). passOrigLocal
-   * holds, per pass, the original local bar indices the pass plays.
+   * holds, per pass, the original local bar indices the pass plays;
+   * bodyBars counts the body bars of a pass; passGroup/groupMask carry the
+   * chosen ending group per pass and its ending bitmask.
    */
-  private record RepeatInfo(int sectionStartLocal, int originalBars, int[][] passOrigLocal) {
+  private record RepeatInfo(int sectionStartLocal, int originalBars, int[][] passOrigLocal,
+                            int bodyBars, int[] passGroup, int[] groupMask) {
   }
 
   /**
@@ -1011,7 +1068,8 @@ public final class TabParser {
       }
       passOrigLocal[k] = idx.stream().mapToInt(Integer::intValue).toArray();
     }
-    return new RepeatInfo(rank0, originalBars, passOrigLocal);
+    return new RepeatInfo(rank0, originalBars, passOrigLocal, Math.max(1, bodyLast - bodyFirst + 1),
+        passGroup, groupMask.stream().mapToInt(Integer::intValue).toArray());
   }
 
   /** The divider after `col`, or the system width when `col` is the last. */

@@ -400,6 +400,56 @@ public class ScoreView extends Canvas {
         g.fillText(String.valueOf(sig[0]), x + 28, yTop + 10);
         g.fillText(String.valueOf(sig[1]), x + 28, yTop + 21);
       }
+
+      // structural marks: tempo chip, repeat barlines, ending chips
+      TabParser.BarMarks mark = bar < timeline.barMarks().size()
+          ? timeline.barMarks().get(bar) : null;
+      if (mark != null) {
+        if (mark.bpm() > 0) {
+          g.setFill(SILVER);
+          g.setFont(Font.font("Share Tech Mono", 11));
+          g.setTextBaseline(VPos.CENTER);
+          g.fillText("@" + (int) Math.round(mark.bpm()), x + 44, yTop + 16);
+        }
+        if (mark.endingMask() != 0) {
+          String text = "[" + endingText(mark.endingMask()) + "]";
+          g.setFill(Color.web("#9FE8F2"));
+          g.setFont(Font.font("Share Tech Mono", 11));
+          g.setTextBaseline(VPos.CENTER);
+          g.fillText(text, x + layout.barPx - 30, yTop + 12);
+        }
+        double barStartX = layout.xForCol(layout.colForBar(bar));
+        double barEndX = barStartX + layout.barPx;
+        if (mark.repeatStart()) {
+          // |: : thin line, then a thick line to its left, dots in the lanes
+          g.setStroke(EDGE);
+          g.setLineWidth(1);
+          g.strokeLine(barStartX - 5, yTop + HEADER_H, barStartX - 5, rowBottom);
+          g.setStroke(CYAN);
+          g.setLineWidth(3);
+          g.strokeLine(barStartX, yTop + HEADER_H, barStartX, rowBottom);
+          g.setFill(CYAN);
+          g.fillOval(barStartX - 11, yTop + HEADER_H + 8, 4, 4);
+          g.fillOval(barStartX - 11, rowBottom - 12, 4, 4);
+        }
+        if (mark.repeatEndPlays() > 0) {
+          // :|xN : thick line then thin, dots, and the play count
+          g.setStroke(CYAN);
+          g.setLineWidth(3);
+          g.strokeLine(barEndX - 2, yTop + HEADER_H, barEndX - 2, rowBottom);
+          g.setStroke(EDGE);
+          g.setLineWidth(1);
+          g.strokeLine(barEndX + 2, yTop + HEADER_H, barEndX + 2, rowBottom);
+          g.setFill(CYAN);
+          g.fillOval(barEndX + 6, yTop + HEADER_H + 8, 4, 4);
+          g.fillOval(barEndX + 6, rowBottom - 12, 4, 4);
+          g.setFill(SILVER);
+          g.setFont(Font.font("Share Tech Mono", 11));
+          g.setTextBaseline(VPos.CENTER);
+          String count = mark.repeatEndPlays() > 2 ? "x" + mark.repeatEndPlays() : "";
+          g.fillText(":|" + count, barEndX - 6, yTop + 12);
+        }
+      }
     }
 
     // playback cursor
@@ -409,6 +459,21 @@ public class ScoreView extends Canvas {
       g.setLineWidth(1.5);
       g.strokeLine(x, yTop + HEADER_H, x, rowBottom);
     }
+  }
+
+  /** Time signature of the given bar (defaults 4/4). */
+  /** Ending bitmask as compact text: "1", "1-3" or "1,3". */
+  private static String endingText(int mask) {
+    StringBuilder text = new StringBuilder();
+    for (int e = 1; e <= 31; e++) {
+      if ((mask & (1 << (e - 1))) != 0) {
+        if (text.length() > 0) {
+          text.append(',');
+        }
+        text.append(e);
+      }
+    }
+    return text.toString();
   }
 
   /** Time signature of the given bar (defaults 4/4). */
