@@ -120,6 +120,7 @@ public final class TabParser {
   private static final class SystemBlock {
     final StringTrack[] tracks = new StringTrack[6];
     int width;
+    double bpm; // 0 = inherit the compile BPM
   }
 
   /**
@@ -333,11 +334,20 @@ public final class TabParser {
     List<SystemBlock> systems = new ArrayList<>();
     SystemBlock current = null;
     Set<Integer> usedInRun = new HashSet<>();
+    double pendingSystemBpm = 0.0;
 
     int lineStartOffset = 0;
     for (String line : text.split("\\R", -1)) {
       Matcher matcher = LABEL_LINE.matcher(line);
       if (!matcher.matches()) {
+        if (line.trim().startsWith("@")) {
+          // tempo directive: the following system plays at that BPM
+          try {
+            pendingSystemBpm = Double.parseDouble(line.trim().substring(1));
+          } catch (NumberFormatException ignored) {
+            warnings.add("Tempo directive ignored: " + line.trim());
+          }
+        }
         current = null;
         usedInRun.clear();
       } else {
@@ -345,6 +355,8 @@ public final class TabParser {
         if (index >= 0) {
           if (current == null || usedInRun.contains(index)) {
             current = new SystemBlock();
+            current.bpm = pendingSystemBpm;
+            pendingSystemBpm = 0.0;
             systems.add(current);
             usedInRun.clear();
           }
@@ -585,7 +597,7 @@ public final class TabParser {
    * ------------------------------------------------------------------ */
 
   private static double tickForSystem(SystemBlock system, double bpm) {
-    double beat = 60.0 / bpm;
+    double beat = 60.0 / (system.bpm > 0.0 ? system.bpm : bpm);
     TreeSet<Integer> bars = new TreeSet<>();
     for (StringTrack track : system.tracks) {
       if (track != null) {

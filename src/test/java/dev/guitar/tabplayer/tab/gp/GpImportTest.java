@@ -101,6 +101,155 @@ class GpImportTest {
     assertTrue(eLine.contains("5555555555555555"), "held note must fill the bar:\n" + ascii);
   }
 
+  /** Minimal 3-bar GP5 with a tempo change (120 -> 150 BPM) inside bar 2. */
+  private static byte[] gp5TempoFixture() throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    DataOutputStream d = new DataOutputStream(out);
+    fixedString(d, "FICHIER GUITAR PRO v5.10", 30);
+    infoString(d, "Test Song");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "Test Artist");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "");
+    writeIntLE(d, 0);
+    writeIntLE(d, 1);
+    for (int i = 0; i < 5; i++) {
+      writeIntLE(d, 0);
+      writeIntLE(d, 0);
+    }
+    d.write(new byte[19]);
+    d.write(new byte[28]);
+    writeShortLE(d, 0);
+    for (int i = 0; i < 10; i++) {
+      writeIntLE(d, 1);
+      d.writeByte(0);
+    }
+    writeIntLE(d, 1);
+    d.writeByte(0);
+    writeIntLE(d, 120);
+    d.writeByte(0);
+    writeIntLE(d, 0);
+    d.writeByte(0);
+    for (int i = 0; i < 64; i++) {
+      writeIntLE(d, 0);
+      d.write(new byte[8]);
+    }
+    for (int i = 0; i < 19; i++) {
+      writeShortLE(d, -1);
+    }
+    d.write(new byte[4]);
+    writeIntLE(d, 3); // bars
+    writeIntLE(d, 1); // tracks
+    // master bars: bar 0 declares 4/4
+    d.writeByte(0x03);
+    d.writeByte(4);
+    d.writeByte(4);
+    d.write(new byte[4]);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0);
+    for (int i = 1; i < 3; i++) {
+      d.writeByte(0x00);
+      d.writeByte(0);
+      d.writeByte(0);
+      d.writeByte(0);
+    }
+    // track (same layout as gp5Fixture)
+    d.writeByte(0x00);
+    fixedString(d, "RHYTHM GTR", 40);
+    writeIntLE(d, 6);
+    int[] tunings = {40, 45, 52, 57, 60, 64, 0};
+    for (int t : tunings) {
+      writeIntLE(d, t);
+    }
+    writeIntLE(d, 1);
+    writeIntLE(d, 1);
+    writeIntLE(d, 1);
+    writeIntLE(d, 24);
+    writeIntLE(d, 0);
+    d.write(new byte[4]);
+    d.writeByte(0x01);
+    d.write(new byte[4]);
+    writeIntLE(d, 0);
+    writeIntLE(d, 0);
+    writeIntLE(d, 0);
+    d.write(new byte[10]);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.write(new byte[16]);
+    d.write(new byte[4]);
+    writeIntLE(d, 1);
+    d.writeByte(0);
+    writeIntLE(d, 1);
+    d.writeByte(0);
+    // bar chunks
+    for (int bar = 0; bar < 3; bar++) {
+      d.writeByte(0); // voice header
+      writeIntLE(d, 4); // beats
+      for (int beat = 0; beat < 4; beat++) {
+        boolean tempoBeat = bar == 1 && beat == 0;
+        if (tempoBeat) {
+          d.writeByte(0x10); // flags: mix table
+          d.writeByte(0); // duration: quarter
+        } else {
+          d.writeByte(0x40); // flags: beat type present (empty beat)
+          d.writeByte(0x00); // beat type: empty
+          d.writeByte(0); // duration: quarter
+        }
+        if (tempoBeat) {
+          // mix table change: instrument, rse bank, params, tempo name,
+          // tempo 150, duration, hide, flags, wah, 2 strings
+          d.writeByte(-1); // instrument
+          d.write(new byte[16]);
+          d.write(new byte[]{-1, -1, -1, -1, -1, -1}); // volume..tremolo
+          writeIntLE(d, 1); // tempo name length
+          d.writeByte(0);
+          writeIntLE(d, 150); // tempo
+          d.writeByte(0); // duration
+          d.writeByte(0); // hide tempo
+          d.writeByte(0); // flags
+          d.writeByte(-1); // wah
+          writeIntLE(d, 1); // unknown string 1
+          d.writeByte(0);
+          writeIntLE(d, 1); // unknown string 2
+          d.writeByte(0);
+          d.writeByte(0x40); // string flags: high e
+          d.writeByte(0x20); // note flags: type + fret
+          d.writeByte(1);
+          d.writeByte(3); // fret
+          d.writeByte(0); // note flags2
+        } else {
+          d.writeByte(0x00); // string flags: none
+        }
+        writeShortLE(d, 0); // beat flags2
+      }
+      writeIntLE(d, 0); // second voice
+    }
+    d.flush();
+    return out.toByteArray();
+  }
+
+  @Test
+  void importsTempoChange() throws IOException {
+    Path file = tempDir.resolve("tempo.gp5");
+    Files.write(file, gp5TempoFixture());
+    GpImport.GpSong song = GpImport.importFile(file);
+    String ascii = song.ascii();
+    assertTrue(ascii.contains("@150"), "tempo directive missing:\n" + ascii);
+
+    // bar 1 plays at 120 BPM (2.0 s), bar 2 at 150 BPM: the pluck lands at 2.0
+    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+    var plucks = timeline.commands().stream()
+        .filter(c -> c.type() == 0 && c.fret() == 3).toList();
+    assertEquals(1, plucks.size());
+    assertTrue(Math.abs(plucks.get(0).timeOffset() - 2.0) < 0.01,
+        "tempo-change pluck time: " + plucks.get(0).timeOffset());
+  }
+
   @Test
   void importsArticulations() throws IOException {
     // 11 bars: hammer origin, bend +4, palm mute, tap, ghost, accent, trill,

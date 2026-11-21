@@ -292,6 +292,16 @@ class Phase3ParserTest {
     }
 
     @Test
+    void tempoDirectiveChangesSystemTiming() {
+        TabParser.TabTimeline timeline = TabParser.compile("@90\ne|--3-3-3-3-|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertEquals(4, plucks.size());
+        // a quarter at 90 BPM = 0.667 s
+        assertNear(plucks.get(1).timeOffset(), 60.0 / 90.0, 0.002, "tempo directive pluck time");
+        assertNear(plucks.get(3).timeOffset(), 2 * 60.0 / 90.0, 0.002, "third beat time");
+    }
+
+    @Test
     void harmonicMarkersProduceHarmonicPluck() {
         TabParser.TabTimeline timeline = TabParser.compile("e|--(12)--5--|\n");
         List<RenderCommand> harmonics = ofType(timeline, GuitarEngine.EVENT_HARMONIC);

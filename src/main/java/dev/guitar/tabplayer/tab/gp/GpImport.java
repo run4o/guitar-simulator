@@ -171,6 +171,7 @@ public final class GpImport {
     boolean repeatEnd;
     int repeatPlays = 2;  // total play count for a repeat-end bar
     int altEndingMask;    // bitmask of alternate endings this bar closes (0 = all)
+    int bpm = -1;         // tempo change effective from this bar (-1 = none)
   }
 
   private static final class Track {
@@ -195,6 +196,7 @@ public final class GpImport {
     private boolean warnedArticulationSkip;
     private boolean warnedGraceSkip;
     private int bpm = 120;
+  private int currentBpm = 120; // running tempo, advanced by mix-table changes
     private String title = "";
     private String artist = "";
     private int barCount;
@@ -235,6 +237,7 @@ public final class GpImport {
         r.stringIntByte(); // tempo label
       }
       bpm = r.u4();
+      currentBpm = bpm;
       if (version >= 510) {
         r.u1(); // hide tempo
       }
@@ -377,8 +380,7 @@ public final class GpImport {
         r.u1(); // unknown
       }
       if (bar.numerator != 4 || bar.denominator != 4) {
-        warn("time signature " + bar.numerator + "/" + bar.denominator
-            + " — bars rendered as 4/4 (bar lengths are normalized)");
+        warn("time signature " + bar.numerator + "/" + bar.denominator + " (bar grid sized to meter)");
       }
       masterBars.add(bar);
     }
@@ -437,10 +439,15 @@ public final class GpImport {
 
     private void readBars() {
       for (int b = 0; b < barCount; b++) {
+        int bpmAtBarStart = currentBpm;
         for (int t = 0; t < trackCount; t++) {
           Track track = tracks.get(t);
           List<Beat> voice = readBar(track);
           track.bars.add(voice);
+        }
+        // a tempo change inside this bar takes effect at the next bar
+        if (currentBpm != bpmAtBarStart && b + 1 < masterBars.size()) {
+          masterBars.get(b + 1).bpm = currentBpm;
         }
       }
     }
@@ -628,6 +635,9 @@ public final class GpImport {
         r.stringIntByte(); // tempo name
       }
       int tempo = r.u4();
+      if (tempo > 0) {
+        currentBpm = tempo; // applies from the next bar (v1)
+      }
       if (volume >= 0) {
         r.u1();
       }
@@ -651,7 +661,6 @@ public final class GpImport {
         if (version >= 510) {
           r.u1(); // hide tempo
         }
-        warn("tempo change to " + tempo + " BPM ignored — one tempo per import");
       }
       if (version >= 400) {
         r.u1(); // mix table flags
@@ -868,6 +877,8 @@ public final class GpImport {
       }
 
       StringBuilder out = new StringBuilder();
+      int runningBpm = bpm;
+      int lastEmittedBpm = bpm;
       out.append("# GP import: ").append(title.isEmpty() ? "untitled" : title)
           .append(artist.isEmpty() ? "" : " — " + artist)
           .append(" · track: ").append(selected.name)
@@ -899,9 +910,19 @@ public final class GpImport {
         barWidth = Math.max(barWidth, renderBarInto(null, beats, mb));
       }
       while (barIndex < barCount) {
-        int barsInLine = Math.min(4, barCount - barIndex);
+        MasterBar first = masterBars.get(barIndex);
+        int sysBpm = first.bpm > 0 ? first.bpm : runningBpm;
+        // the system ends at the next tempo change (the tick is per system)
+        int barsInLine = 1;
+        while (barsInLine < 4 && barIndex + barsInLine < barCount) {
+          MasterBar cur = masterBars.get(barIndex + barsInLine);
+          if (cur.bpm > 0 && cur.bpm != runningBpm) {
+            break;
+          }
+          barsInLine++;
+        }
         StringBuilder[] lines = new StringBuilder[6];
-        String lead = masterBars.get(barIndex).repeatStart ? "|:" : "|";
+        String lead = first.repeatStart ? "|:" : "|";
         for (int s = 0; s < 6; s++) {
           lines[s] = new StringBuilder("EADGBe".charAt(s) + lead);
         }
@@ -930,6 +951,11 @@ public final class GpImport {
         }
         out.append('\n');
         barIndex += barsInLine;
+        runningBpm = sysBpm;
+        if (sysBpm != lastEmittedBpm) {
+          out.append('@').append(sysBpm).append('\n');
+          lastEmittedBpm = sysBpm;
+        }
       }
 
       List<int[]> perBarMeters = new ArrayList<>();
