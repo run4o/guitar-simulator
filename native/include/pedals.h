@@ -476,6 +476,71 @@ private:
 };
 
 /*
+ * Vibrato: notes warble — the LFO-bent pitch copy REPLACES the dry signal
+ * (that is what separates it from the chorus, which adds the copy on
+ * top). The fractional delay line sweeps up to 20 ms (10 ms center,
+ * depth up to 10 ms of deviation) at 0.1..4 Hz; MIX blends back toward
+ * dry.
+ */
+class VibratoPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        const int capacity = static_cast<int>(sample_rate * 0.05f) + 16;
+        if (static_cast<int>(buffer_.size()) != capacity) {
+            buffer_.assign(capacity, 0.0f);
+        } else {
+            std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+        }
+        write_ = 0;
+        phase_ = 0.0f;
+        setParams(rate_, depth_, mix_);
+    }
+
+    void setParams(float rate, float depth, float mix) {
+        rate_ = std::clamp(rate, 0.0f, 1.0f);
+        depth_ = std::clamp(depth, 0.0f, 1.0f);
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+        rate_hz_ = 0.1f * std::pow(40.0f, rate_);   // 0.1 .. 4 Hz
+        base_samples_ = 0.010f * fs_;                // 10 ms center
+        depth_samples_ = depth_ * 0.010f * fs_;      // up to 10 ms
+    }
+
+    float process(float in) override {
+        const int size = static_cast<int>(buffer_.size());
+        phase_ += 6.2831853f * rate_hz_ / fs_;
+        if (phase_ > 6.2831853f) {
+            phase_ -= 6.2831853f;
+        }
+        float delay = base_samples_ + depth_samples_ * std::sin(phase_);
+        delay = std::clamp(delay, 1.0f, static_cast<float>(size) - 2.0f);
+        const int d = static_cast<int>(delay);
+        const float frac = delay - static_cast<float>(d);
+        int r0 = write_ - d;
+        if (r0 < 0) {
+            r0 += size;
+        }
+        int r1 = r0 - 1 < 0 ? size - 1 : r0 - 1;
+        const float wet = buffer_[r0] * (1.0f - frac) + buffer_[r1] * frac;
+        buffer_[write_] = in;
+        write_ = write_ + 1 == size ? 0 : write_ + 1;
+        return in + (wet - in) * mix_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float rate_ = 0.5f;
+    float depth_ = 0.5f;
+    float mix_ = 1.0f;
+    float rate_hz_ = 2.0f;
+    float base_samples_ = 441.0f;
+    float depth_samples_ = 220.0f;
+    float phase_ = 0.0f;
+    int write_ = 0;
+    std::vector<float> buffer_;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -492,6 +557,7 @@ public:
         flanger_.prepare(fs_);
         phaser_.prepare(fs_);
         tremolo_.prepare(fs_);
+        vibrato_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -539,6 +605,11 @@ public:
         tremolo_.setParams(rate, depth);
     }
 
+    void setVibrato(bool enabled, float rate, float depth, float mix) {
+        vibrato_.enabled = enabled;
+        vibrato_.setParams(rate, depth, mix);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -567,6 +638,9 @@ public:
         if (tremolo_.enabled) {
             in = tremolo_.process(in);
         }
+        if (vibrato_.enabled) {
+            in = vibrato_.process(in);
+        }
         return in;
     }
 
@@ -581,6 +655,7 @@ private:
     FlangerPedal flanger_;
     PhaserPedal phaser_;
     TremoloPedal tremolo_;
+    VibratoPedal vibrato_;
 };
 
 } // namespace gte

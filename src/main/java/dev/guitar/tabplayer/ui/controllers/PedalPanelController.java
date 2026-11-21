@@ -136,5 +136,19 @@ public class PedalPanelController {
     tremRate.valueProperty().bindBidirectional(ctx.tremoloRateProperty());
     tremDepth.valueProperty().bindBidirectional(ctx.tremoloDepthProperty());
     pedalRow.getChildren().add(tremolo);
+
+    // VIBRATO: LFO pitch warble (the bent copy replaces the dry signal)
+    Knob vibRate = new Knob(0, 1, 0.5, 44);
+    Knob vibDepth = new Knob(0, 1, 0.5, 44);
+    Knob vibMix = new Knob(0, 1, 1.0, 44);
+    PedalBox vibrato = new PedalBox("VIBRATO");
+    vibrato.addKnob(vibRate, "RATE");
+    vibrato.addKnob(vibDepth, "DEPTH");
+    vibrato.addKnob(vibMix, "MIX");
+    vibrato.enabledProperty().bindBidirectional(ctx.vibratoEnabledProperty());
+    vibRate.valueProperty().bindBidirectional(ctx.vibratoRateProperty());
+    vibDepth.valueProperty().bindBidirectional(ctx.vibratoDepthProperty());
+    vibMix.valueProperty().bindBidirectional(ctx.vibratoMixProperty());
+    pedalRow.getChildren().add(vibrato);
   }
 }

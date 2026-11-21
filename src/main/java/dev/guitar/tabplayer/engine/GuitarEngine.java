@@ -51,6 +51,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setFlangerFn;
   private final MethodHandle setPhaserFn;
   private final MethodHandle setTremoloFn;
+  private final MethodHandle setVibratoFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -109,6 +110,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
       setTremoloFn = linker.downcallHandle(symbols.find("guitar_engine_set_tremolo").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setVibratoFn = linker.downcallHandle(symbols.find("guitar_engine_set_vibrato").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -482,6 +485,18 @@ public final class GuitarEngine implements AutoCloseable {
       setTremoloFn.invokeExact(enabled, rate, depth);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_tremolo failed", t);
+    }
+  }
+
+  /**
+   * Vibrato pedal: pitch warble — the LFO-bent copy replaces the dry
+   * signal (rate/depth/mix 0..1), after the tremolo, on both paths.
+   */
+  public void setVibrato(boolean enabled, float rate, float depth, float mix) {
+    try {
+      setVibratoFn.invokeExact(enabled, rate, depth, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_vibrato failed", t);
     }
   }
 

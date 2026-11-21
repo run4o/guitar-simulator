@@ -531,4 +531,78 @@ class Phase6PedalTest {
         assertTrue(tremSb > 2.0f * cleanSb,
                 "tremolo must create AM sidebands: clean=" + cleanSb + " trem=" + tremSb);
     }
+
+    /* ---- vibrato -------------------------------------------------------- */
+
+    /** Same fixture with vibrato params (amp section neutral). */
+    private WavAnalysis.Wav renderVibrato(boolean enabled, float rate, float depth,
+                                          float mix) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("vibrato-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setVibrato(enabled, rate, depth, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedVibratoLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderVibrato(false, 0.8f, 0.8f, 0.8f);
+        WavAnalysis.Wav clean = renderVibrato(false, 0f, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed vibrato must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void vibratoWithMixZeroIsDry() throws Exception {
+        // out = in + (wet - in)*mix: mix 0 is an exact passthrough even
+        // with the pedal engaged and every knob turned up
+        WavAnalysis.Wav clean = renderVibrato(false, 0f, 0f, 0f);
+        WavAnalysis.Wav dry = renderVibrato(true, 0.8f, 0.8f, 0.0f);
+        float ratio = WavAnalysis.rms(dry, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "mix 0 vibrato must pass the signal untouched, ratio=" + ratio);
+    }
+
+    @Test
+    void vibratoWobblesThePitch() throws Exception {
+        // the wet-only pitch-wobbled copy fans FM sidebands around the note
+        // (rate knob 1.0 -> 4 Hz), summed over f0 +/- k*4 Hz
+        WavAnalysis.Wav clean = renderVibrato(false, 0f, 0f, 0f);
+        WavAnalysis.Wav wob = renderVibrato(true, 1.0f, 0.8f, 1.0f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.02, 0.15);
+        assertTrue(f0 > 100, "fixture must have a pitch: " + f0);
+        float cleanSb = 0;
+        float vibSb = 0;
+        for (int k = 1; k <= 12; k++) {
+            cleanSb += WavAnalysis.toneMagnitude(clean, 0.05, 0.30, f0 + k * 4.0f);
+            vibSb += WavAnalysis.toneMagnitude(wob, 0.05, 0.30, f0 + k * 4.0f);
+        }
+        assertTrue(vibSb > 3.0f * cleanSb,
+                "vibrato must create FM sidebands: clean=" + cleanSb + " vibrato=" + vibSb);
+    }
+
+    @Test
+    void vibratoDepthScalesTheWobble() throws Exception {
+        // a wider delay sweep bends the pitch further, spreading energy over
+        // MORE sidebands (wideband FM) — sum over a wide fan so the deeper
+        // setting's total sideband energy wins
+        WavAnalysis.Wav light = renderVibrato(true, 1.0f, 0.2f, 1.0f);
+        WavAnalysis.Wav deep = renderVibrato(true, 1.0f, 0.9f, 1.0f);
+        float f0 = 494.0f; // string 5 fret 7
+        float lightSb = 0;
+        float deepSb = 0;
+        for (int k = 1; k <= 40; k++) {
+            lightSb += WavAnalysis.toneMagnitude(light, 0.05, 0.30, f0 + k * 4.0f);
+            deepSb += WavAnalysis.toneMagnitude(deep, 0.05, 0.30, f0 + k * 4.0f);
+        }
+        assertTrue(deepSb > 1.5f * lightSb,
+                "depth must scale the pitch wobble: light=" + lightSb + " deep=" + deepSb);
+    }
 }
