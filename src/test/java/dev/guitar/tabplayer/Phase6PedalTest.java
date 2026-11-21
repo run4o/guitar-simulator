@@ -109,4 +109,49 @@ class Phase6PedalTest {
         assertTrue(drivenCrest < cleanCrest * 0.9f,
                 "overdrive must clip the peaks: crest " + cleanCrest + " -> " + drivenCrest);
     }
+
+    /* ---- distortion --------------------------------------------------- */
+
+    /** Same fixture with distortion params (amp section neutral). */
+    private WavAnalysis.Wav renderDist(boolean enabled, float drive, float tone, float level) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f));
+        Path wav = tempDir.resolve("dist-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setDistortion(enabled, drive, tone, level);
+            assertTrue(engine.renderSequenceToWav(wav, 2.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void distortionClampsToFlatPeaks() throws Exception {
+        WavAnalysis.Wav clean = renderDist(false, 0f, 0f, 0.5f);
+        WavAnalysis.Wav crushed = renderDist(true, 0.9f, 0.5f, 0.5f);
+        float cleanCrest = WavAnalysis.peak(clean, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        float crushedCrest = WavAnalysis.peak(crushed, 0.05, 0.25) / WavAnalysis.rms(crushed, 0.05, 0.25);
+        // a hard-clipped square-ish wave is far flatter than a plucked string
+        assertTrue(crushedCrest < cleanCrest * 0.7f,
+                "distortion must flatten the wave hard: crest " + cleanCrest + " -> " + crushedCrest);
+        // and it must be far louder than the overdrive's gentle grit at the
+        // same knob positions would be
+        float crushedLate = WavAnalysis.rms(crushed, 0.15, 0.28);
+        float cleanLate = WavAnalysis.rms(clean, 0.15, 0.28);
+        assertTrue(crushedLate > 2.0f * cleanLate,
+                "distortion must sustain heavily: clean=" + cleanLate + " crushed=" + crushedLate);
+    }
+
+    @Test
+    void distortionLevelScalesOutput() throws Exception {
+        WavAnalysis.Wav full = renderDist(true, 0.9f, 0.5f, 0.9f);
+        WavAnalysis.Wav quiet = renderDist(true, 0.9f, 0.5f, 0.3f);
+        float fullRms = WavAnalysis.rms(full, 0.05, 0.25);
+        float quietRms = WavAnalysis.rms(quiet, 0.05, 0.25);
+        float ratio = quietRms / fullRms;
+        // level 0.3/0.9 = 0.5 vs 0.925 output scales: ~0.54 ratio
+        assertTrue(ratio > 0.35f && ratio < 0.75f, "level knob must scale the output, ratio=" + ratio);
+    }
 }

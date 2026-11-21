@@ -38,5 +38,19 @@ public class PedalPanelController {
     odDrive.valueProperty().bindBidirectional(ctx.odDriveProperty());
     odTone.valueProperty().bindBidirectional(ctx.odToneProperty());
     pedalRow.getChildren().add(overdrive);
+
+    // DISTORTION: heavy hard-clipped crunch
+    Knob distDrive = new Knob(0, 1, 0.5, 44);
+    Knob distTone = new Knob(0, 1, 0.5, 44);
+    Knob distLevel = new Knob(0, 1, 0.5, 44);
+    PedalBox distortion = new PedalBox("DISTORTION");
+    distortion.addKnob(distDrive, "DRIVE");
+    distortion.addKnob(distTone, "TONE");
+    distortion.addKnob(distLevel, "LEVEL");
+    distortion.enabledProperty().bindBidirectional(ctx.distEnabledProperty());
+    distDrive.valueProperty().bindBidirectional(ctx.distDriveProperty());
+    distTone.valueProperty().bindBidirectional(ctx.distToneProperty());
+    distLevel.valueProperty().bindBidirectional(ctx.distLevelProperty());
+    pedalRow.getChildren().add(distortion);
   }
 }

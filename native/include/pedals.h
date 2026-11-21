@@ -49,6 +49,49 @@ private:
 };
 
 /*
+ * Distortion: heavy rock crunch from aggressively clipping the wave into a
+ * sharper, flatter shape — diode-style. Very high gain (1..40) into a tanh
+ * waveshaper, then a hard clamp at +/-0.85 gives the flat-top shape a diode
+ * pair leaves behind, a tone low-pass (2..10 kHz) softens the buzz, and a
+ * level knob restores output (distortion pedals run fully wet).
+ */
+class DistortionPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        lp_state_ = 0.0f;
+        setParams(drive_, tone_, level_);
+    }
+
+    void setParams(float drive, float tone, float level) {
+        drive_ = std::clamp(drive, 0.0f, 1.0f);
+        tone_ = std::clamp(tone, 0.0f, 1.0f);
+        level_ = std::clamp(level, 0.0f, 1.0f);
+        const float cutoff = 2000.0f * std::pow(5.0f, tone_); // 2 kHz .. 10 kHz
+        lp_coef_ = 1.0f - std::exp(-6.2831853f * cutoff / fs_);
+        gain_ = 1.0f + drive_ * 39.0f;
+        out_ = 0.25f + 0.75f * level_;
+    }
+
+    float process(float in) override {
+        const float shaped = std::tanh(gain_ * in);
+        const float clipped = std::clamp(shaped, -0.85f, 0.85f);
+        lp_state_ += lp_coef_ * (clipped - lp_state_);
+        return lp_state_ * out_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float drive_ = 0.0f;
+    float tone_ = 0.5f;
+    float level_ = 0.5f;
+    float lp_coef_ = 0.3f;
+    float lp_state_ = 0.0f;
+    float gain_ = 1.0f;
+    float out_ = 0.625f;
+};
+
+/*
  * Overdrive: warm, dynamic grit from gently clipping the wave's peaks —
  * a pushed tube amp. A 720 Hz one-pole high-pass (the TubeScreamer
  * hallmark) keeps bass fundamentals tight, a variable gain (1..15) feeds a
@@ -117,12 +160,20 @@ public:
         overdrive_.setParams(drive, tone);
     }
 
+    void setDistortion(bool enabled, float drive, float tone, float level) {
+        distortion_.enabled = enabled;
+        distortion_.setParams(drive, tone, level);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
         }
         if (overdrive_.enabled) {
             in = overdrive_.process(in);
+        }
+        if (distortion_.enabled) {
+            in = distortion_.process(in);
         }
         return in;
     }
@@ -131,6 +182,7 @@ private:
     float fs_ = 44100.0f;
     BoostPedal boost_;
     OverdrivePedal overdrive_;
+    DistortionPedal distortion_;
 };
 
 } // namespace gte

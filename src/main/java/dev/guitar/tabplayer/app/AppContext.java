@@ -40,6 +40,10 @@ public final class AppContext {
   private final DoubleProperty odDrive = new SimpleDoubleProperty(0.5);
   private final DoubleProperty odTone = new SimpleDoubleProperty(0.5);
   private final BooleanProperty odEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty distDrive = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty distTone = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty distLevel = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty distEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -51,7 +55,8 @@ public final class AppContext {
     for (DoubleProperty p : new DoubleProperty[]{drive, tone, reverb, master}) {
       p.addListener((o, ov, nv) -> applyFx());
     }
-    for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled}) {
+    for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
+        distDrive, distTone, distLevel, distEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -146,6 +151,22 @@ public final class AppContext {
     return odEnabled;
   }
 
+  public DoubleProperty distDriveProperty() {
+    return distDrive;
+  }
+
+  public DoubleProperty distToneProperty() {
+    return distTone;
+  }
+
+  public DoubleProperty distLevelProperty() {
+    return distLevel;
+  }
+
+  public BooleanProperty distEnabledProperty() {
+    return distEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -170,6 +191,10 @@ public final class AppContext {
     state.put("od.enabled", Boolean.toString(odEnabled.get()));
     state.put("od.drive", Double.toString(odDrive.get()));
     state.put("od.tone", Double.toString(odTone.get()));
+    state.put("dist.enabled", Boolean.toString(distEnabled.get()));
+    state.put("dist.drive", Double.toString(distDrive.get()));
+    state.put("dist.tone", Double.toString(distTone.get()));
+    state.put("dist.level", Double.toString(distLevel.get()));
     return state;
   }
 
@@ -180,6 +205,10 @@ public final class AppContext {
     odEnabled.set(Boolean.parseBoolean(state.getOrDefault("od.enabled", "false")));
     odDrive.set(clamp(parse(state.getOrDefault("od.drive", "0.5")), 0, 1));
     odTone.set(clamp(parse(state.getOrDefault("od.tone", "0.5")), 0, 1));
+    distEnabled.set(Boolean.parseBoolean(state.getOrDefault("dist.enabled", "false")));
+    distDrive.set(clamp(parse(state.getOrDefault("dist.drive", "0.5")), 0, 1));
+    distTone.set(clamp(parse(state.getOrDefault("dist.tone", "0.5")), 0, 1));
+    distLevel.set(clamp(parse(state.getOrDefault("dist.level", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -208,6 +237,8 @@ public final class AppContext {
     }
     engine.setBoost(boostEnabled.get(), (float) boostGain.get());
     engine.setOverdrive(odEnabled.get(), (float) odDrive.get(), (float) odTone.get());
+    engine.setDistortion(distEnabled.get(), (float) distDrive.get(),
+        (float) distTone.get(), (float) distLevel.get());
   }
 
   public void applyTuning(Tuning tuning) {

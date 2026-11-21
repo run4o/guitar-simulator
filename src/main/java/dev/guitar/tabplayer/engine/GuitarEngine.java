@@ -44,6 +44,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setFxFn;
   private final MethodHandle setBoostFn;
   private final MethodHandle setOverdriveFn;
+  private final MethodHandle setDistortionFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -88,6 +89,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
       setOverdriveFn = linker.downcallHandle(symbols.find("guitar_engine_set_overdrive").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setDistortionFn = linker.downcallHandle(symbols.find("guitar_engine_set_distortion").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -376,6 +379,18 @@ public final class GuitarEngine implements AutoCloseable {
       setOverdriveFn.invokeExact(enabled, drive, tone);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_overdrive failed", t);
+    }
+  }
+
+  /**
+   * Distortion pedal: heavy hard-clipped crunch (drive 0..1, tone 0..1,
+   * level 0..1), after overdrive, before the amp FX, on both paths.
+   */
+  public void setDistortion(boolean enabled, float drive, float tone, float level) {
+    try {
+      setDistortionFn.invokeExact(enabled, drive, tone, level);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_distortion failed", t);
     }
   }
 

@@ -85,6 +85,10 @@ GTE_EXPORT void      guitar_engine_set_boost(bool enabled, float gain_db);
  * boost and before the amp FX, on both paths. */
 GTE_EXPORT void      guitar_engine_set_overdrive(bool enabled, float drive, float tone);
 
+/* Pedalboard: heavy hard-clipped crunch (drive 0..1, tone 0..1, level 0..1),
+ * after overdrive and before the amp FX, on both paths. */
+GTE_EXPORT void      guitar_engine_set_distortion(bool enabled, float drive, float tone, float level);
+
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);
 
