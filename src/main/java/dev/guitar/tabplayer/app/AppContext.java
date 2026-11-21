@@ -65,6 +65,9 @@ public final class AppContext {
   private final DoubleProperty phaserRegen = new SimpleDoubleProperty(0.4);
   private final DoubleProperty phaserMix = new SimpleDoubleProperty(0.5);
   private final BooleanProperty phaserEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty tremoloRate = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty tremoloDepth = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty tremoloEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -82,7 +85,8 @@ public final class AppContext {
         delayTime, delayFeedback, delayMix, delayEnabled,
         chorusRate, chorusDepth, chorusMix, chorusEnabled,
         flangerRate, flangerDepth, flangerFeedback, flangerMix, flangerEnabled,
-        phaserRate, phaserDepth, phaserRegen, phaserMix, phaserEnabled}) {
+        phaserRate, phaserDepth, phaserRegen, phaserMix, phaserEnabled,
+        tremoloRate, tremoloDepth, tremoloEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -277,6 +281,18 @@ public final class AppContext {
     return phaserEnabled;
   }
 
+  public DoubleProperty tremoloRateProperty() {
+    return tremoloRate;
+  }
+
+  public DoubleProperty tremoloDepthProperty() {
+    return tremoloDepth;
+  }
+
+  public BooleanProperty tremoloEnabledProperty() {
+    return tremoloEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -326,6 +342,9 @@ public final class AppContext {
     state.put("phaser.depth", Double.toString(phaserDepth.get()));
     state.put("phaser.regen", Double.toString(phaserRegen.get()));
     state.put("phaser.mix", Double.toString(phaserMix.get()));
+    state.put("tremolo.enabled", Boolean.toString(tremoloEnabled.get()));
+    state.put("tremolo.rate", Double.toString(tremoloRate.get()));
+    state.put("tremolo.depth", Double.toString(tremoloDepth.get()));
     return state;
   }
 
@@ -361,6 +380,9 @@ public final class AppContext {
     phaserDepth.set(clamp(parse(state.getOrDefault("phaser.depth", "0.5")), 0, 1));
     phaserRegen.set(clamp(parse(state.getOrDefault("phaser.regen", "0.4")), 0, 0.9));
     phaserMix.set(clamp(parse(state.getOrDefault("phaser.mix", "0.5")), 0, 1));
+    tremoloEnabled.set(Boolean.parseBoolean(state.getOrDefault("tremolo.enabled", "false")));
+    tremoloRate.set(clamp(parse(state.getOrDefault("tremolo.rate", "0.5")), 0, 1));
+    tremoloDepth.set(clamp(parse(state.getOrDefault("tremolo.depth", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -401,6 +423,7 @@ public final class AppContext {
         (float) flangerMix.get());
     engine.setPhaser(phaserEnabled.get(), (float) phaserRate.get(),
         (float) phaserDepth.get(), (float) phaserRegen.get(), (float) phaserMix.get());
+    engine.setTremolo(tremoloEnabled.get(), (float) tremoloRate.get(), (float) tremoloDepth.get());
   }
 
   public void applyTuning(Tuning tuning) {

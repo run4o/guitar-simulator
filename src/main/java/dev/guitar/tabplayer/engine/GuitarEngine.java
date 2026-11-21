@@ -50,6 +50,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setChorusFn;
   private final MethodHandle setFlangerFn;
   private final MethodHandle setPhaserFn;
+  private final MethodHandle setTremoloFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -106,6 +107,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
       setPhaserFn = linker.downcallHandle(symbols.find("guitar_engine_set_phaser").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
+      setTremoloFn = linker.downcallHandle(symbols.find("guitar_engine_set_tremolo").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -467,6 +470,18 @@ public final class GuitarEngine implements AutoCloseable {
       setPhaserFn.invokeExact(enabled, rate, depth, regen, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_phaser failed", t);
+    }
+  }
+
+  /**
+   * Tremolo pedal: LFO volume pulse (rate/depth 0..1), after the phaser,
+   * on both paths.
+   */
+  public void setTremolo(boolean enabled, float rate, float depth) {
+    try {
+      setTremoloFn.invokeExact(enabled, rate, depth);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_tremolo failed", t);
     }
   }
 

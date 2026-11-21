@@ -134,6 +134,9 @@ struct PedalParams {
     std::atomic<float> phaser_depth{0.5f};
     std::atomic<float> phaser_regen{0.4f};
     std::atomic<float> phaser_mix{0.5f};
+    std::atomic<bool> tremolo_enabled{false};
+    std::atomic<float> tremolo_rate{0.5f};
+    std::atomic<float> tremolo_depth{0.5f};
 };
 PedalParams g_pedals;
 
@@ -231,7 +234,7 @@ void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
     }
 }
 
-void sync_pedal_params(gte::PedalChain& chain, float cached[30]) {
+void sync_pedal_params(gte::PedalChain& chain, float cached[33]) {
     const float boostOn = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     const float boostGain = g_pedals.boost_gain.load(std::memory_order_relaxed);
     const float fuzzOn = g_pedals.fuzz_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
@@ -262,6 +265,9 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[30]) {
     const float phDepth = g_pedals.phaser_depth.load(std::memory_order_relaxed);
     const float phRegen = g_pedals.phaser_regen.load(std::memory_order_relaxed);
     const float phMix = g_pedals.phaser_mix.load(std::memory_order_relaxed);
+    const float tremOn = g_pedals.tremolo_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float tremRate = g_pedals.tremolo_rate.load(std::memory_order_relaxed);
+    const float tremDepth = g_pedals.tremolo_depth.load(std::memory_order_relaxed);
     if (boostOn != cached[0] || boostGain != cached[1] || fuzzOn != cached[2]
         || fuzzAmt != cached[3] || fuzzVol != cached[4] || odOn != cached[5]
         || odDrive != cached[6] || odTone != cached[7] || distOn != cached[8]
@@ -273,7 +279,8 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[30]) {
         || flOn != cached[20] || flRate != cached[21]
         || flDepth != cached[22] || flFb != cached[23] || flMix != cached[24]
         || phOn != cached[25] || phRate != cached[26] || phDepth != cached[27]
-        || phRegen != cached[28] || phMix != cached[29]) {
+        || phRegen != cached[28] || phMix != cached[29]
+        || tremOn != cached[30] || tremRate != cached[31] || tremDepth != cached[32]) {
         chain.setBoost(boostOn > 0.5f, boostGain);
         chain.setFuzz(fuzzOn > 0.5f, fuzzAmt, fuzzVol);
         chain.setOverdrive(odOn > 0.5f, odDrive, odTone);
@@ -282,6 +289,7 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[30]) {
         chain.setChorus(chorusOn > 0.5f, chorusRate, chorusDepth, chorusMix);
         chain.setFlanger(flOn > 0.5f, flRate, flDepth, flFb, flMix);
         chain.setPhaser(phOn > 0.5f, phRate, phDepth, phRegen, phMix);
+        chain.setTremolo(tremOn > 0.5f, tremRate, tremDepth);
         cached[0] = boostOn;
         cached[1] = boostGain;
         cached[2] = fuzzOn;
@@ -312,6 +320,9 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[30]) {
         cached[27] = phDepth;
         cached[28] = phRegen;
         cached[29] = phMix;
+        cached[30] = tremOn;
+        cached[31] = tremRate;
+        cached[32] = tremDepth;
     }
 }
 
@@ -326,8 +337,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
     sync_fx_params(s.fx_l, fx_cached_l);
     sync_fx_params(s.fx_r, fx_cached_r);
-    static thread_local float pedal_cached_l[30] = {  -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
-    static thread_local float pedal_cached_r[30] = {  -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_l[33] = {   -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_r[33] = {   -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
     sync_pedal_params(s.pedals_l, pedal_cached_l);
     sync_pedal_params(s.pedals_r, pedal_cached_r);
 
@@ -557,6 +568,14 @@ GTE_EXPORT void guitar_engine_set_phaser(bool enabled, float rate, float depth,
     g_pedals.phaser_mix.store(std::clamp(mix, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
+/* Pedalboard: LFO volume pulse (rate/depth normalized 0..1), after the
+ * phaser. */
+GTE_EXPORT void guitar_engine_set_tremolo(bool enabled, float rate, float depth) {
+    g_pedals.tremolo_enabled.store(enabled, std::memory_order_relaxed);
+    g_pedals.tremolo_rate.store(std::clamp(rate, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.tremolo_depth.store(std::clamp(depth, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -600,7 +619,7 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
     gte::PedalChain pedals;
     pedals.prepare(fs);
     {
-        float cached[30] = {  -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+        float cached[33] = {   -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
         sync_pedal_params(pedals, cached);
     }
 

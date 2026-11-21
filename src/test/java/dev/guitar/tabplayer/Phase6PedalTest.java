@@ -466,4 +466,69 @@ class Phase6PedalTest {
         assertTrue(ratio < 0.85f || ratio > 1.15f,
                 "regeneration must change the render measurably, ratio=" + ratio);
     }
+
+    /* ---- tremolo ------------------------------------------------------- */
+
+    /** Same fixture with tremolo params (amp section neutral). */
+    private WavAnalysis.Wav renderTremolo(boolean enabled, float rate, float depth) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("tremolo-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setTremolo(enabled, rate, depth);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedTremoloLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderTremolo(false, 0.8f, 0.8f);
+        WavAnalysis.Wav clean = renderTremolo(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed tremolo must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void tremoloWithZeroDepthIsUnity() throws Exception {
+        // gain = 1 - depth + depth*(...): depth 0 pins the gain at 1.0
+        WavAnalysis.Wav clean = renderTremolo(false, 0f, 0f);
+        WavAnalysis.Wav zeroDepth = renderTremolo(true, 1.0f, 0.0f);
+        float ratio = WavAnalysis.rms(zeroDepth, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "depth 0 tremolo must be unity gain, ratio=" + ratio);
+    }
+
+    @Test
+    void tremoloDucksTheAverageLevel() throws Exception {
+        // average gain over many LFO cycles = 1 - depth/2; depth 0.8 at
+        // 16 Hz averages ~4 cycles in the 0.05-0.30 s window
+        WavAnalysis.Wav clean = renderTremolo(false, 0f, 0f);
+        WavAnalysis.Wav pulsed = renderTremolo(true, 1.0f, 0.8f);
+        float ratio = WavAnalysis.rms(pulsed, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.45f && ratio < 0.75f,
+                "tremolo must duck the average level to ~0.6, ratio=" + ratio);
+    }
+
+    @Test
+    void tremoloFansAmSidebands() throws Exception {
+        // amplitude modulation puts energy at f0 +/- k*rate; rate 1.0
+        // (16 Hz) fans sidebands every 16 Hz, summed over k = 1..6
+        WavAnalysis.Wav clean = renderTremolo(false, 0f, 0f);
+        WavAnalysis.Wav pulsed = renderTremolo(true, 1.0f, 0.8f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.02, 0.15);
+        assertTrue(f0 > 100, "fixture must have a pitch: " + f0);
+        float cleanSb = 0;
+        float tremSb = 0;
+        for (int k = 1; k <= 6; k++) {
+            cleanSb += WavAnalysis.toneMagnitude(clean, 0.05, 0.30, f0 + k * 16.0f);
+            tremSb += WavAnalysis.toneMagnitude(pulsed, 0.05, 0.30, f0 + k * 16.0f);
+        }
+        assertTrue(tremSb > 2.0f * cleanSb,
+                "tremolo must create AM sidebands: clean=" + cleanSb + " trem=" + tremSb);
+    }
 }

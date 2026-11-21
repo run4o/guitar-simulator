@@ -96,6 +96,7 @@ GTE_EXPORT void      guitar_engine_set_delay(bool enabled, float time, float fee
 GTE_EXPORT void      guitar_engine_set_chorus(bool enabled, float rate, float depth, float mix);
 GTE_EXPORT void      guitar_engine_set_flanger(bool enabled, float rate, float depth, float feedback, float mix);
 GTE_EXPORT void      guitar_engine_set_phaser(bool enabled, float rate, float depth, float regen, float mix);
+GTE_EXPORT void      guitar_engine_set_tremolo(bool enabled, float rate, float depth);
 
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);

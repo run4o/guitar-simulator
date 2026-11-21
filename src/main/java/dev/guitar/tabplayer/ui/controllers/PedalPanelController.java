@@ -125,5 +125,16 @@ public class PedalPanelController {
     phRegen.valueProperty().bindBidirectional(ctx.phaserRegenProperty());
     phMix.valueProperty().bindBidirectional(ctx.phaserMixProperty());
     pedalRow.getChildren().add(phaser);
+
+    // TREMOLO: LFO volume pulse
+    Knob tremRate = new Knob(0, 1, 0.5, 44);
+    Knob tremDepth = new Knob(0, 1, 0.5, 44);
+    PedalBox tremolo = new PedalBox("TREMOLO");
+    tremolo.addKnob(tremRate, "RATE");
+    tremolo.addKnob(tremDepth, "DEPTH");
+    tremolo.enabledProperty().bindBidirectional(ctx.tremoloEnabledProperty());
+    tremRate.valueProperty().bindBidirectional(ctx.tremoloRateProperty());
+    tremDepth.valueProperty().bindBidirectional(ctx.tremoloDepthProperty());
+    pedalRow.getChildren().add(tremolo);
   }
 }

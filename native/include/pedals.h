@@ -439,6 +439,43 @@ private:
 };
 
 /*
+ * Tremolo: the rhythmic pulsing — an LFO rides the volume up and down.
+ * Gain = 1 - depth + depth*(0.5 + 0.5*sin(phase)), so depth 0 is a
+ * constant unity gain and depth 1 ducks fully to silence at the LFO
+ * troughs. Rate 0.5..16 Hz (log).
+ */
+class TremoloPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        phase_ = 0.0f;
+        setParams(rate_, depth_);
+    }
+
+    void setParams(float rate, float depth) {
+        rate_ = std::clamp(rate, 0.0f, 1.0f);
+        depth_ = std::clamp(depth, 0.0f, 1.0f);
+        rate_hz_ = 0.5f * std::pow(32.0f, rate_); // 0.5 .. 16 Hz
+    }
+
+    float process(float in) override {
+        phase_ += 6.2831853f * rate_hz_ / fs_;
+        if (phase_ > 6.2831853f) {
+            phase_ -= 6.2831853f;
+        }
+        const float gain = 1.0f - depth_ + depth_ * (0.5f + 0.5f * std::sin(phase_));
+        return in * gain;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float rate_ = 0.5f;
+    float depth_ = 0.5f;
+    float rate_hz_ = 4.0f;
+    float phase_ = 0.0f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -454,6 +491,7 @@ public:
         chorus_.prepare(fs_);
         flanger_.prepare(fs_);
         phaser_.prepare(fs_);
+        tremolo_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -496,6 +534,11 @@ public:
         phaser_.setParams(rate, depth, regen, mix);
     }
 
+    void setTremolo(bool enabled, float rate, float depth) {
+        tremolo_.enabled = enabled;
+        tremolo_.setParams(rate, depth);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -521,6 +564,9 @@ public:
         if (phaser_.enabled) {
             in = phaser_.process(in);
         }
+        if (tremolo_.enabled) {
+            in = tremolo_.process(in);
+        }
         return in;
     }
 
@@ -534,6 +580,7 @@ private:
     ChorusPedal chorus_;
     FlangerPedal flanger_;
     PhaserPedal phaser_;
+    TremoloPedal tremolo_;
 };
 
 } // namespace gte
