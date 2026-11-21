@@ -711,6 +711,55 @@ private:
 };
 
 /*
+ * Noise Gate: mutes the path whenever the envelope drops below the
+ * threshold — silences string ring-out and handling buzz between notes.
+ * The gate closes fast (~2 ms) and opens over a RELEASE time
+ * (0.01..0.5 s) so it never clicks.
+ */
+class GatePedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        env_ = 0.0f;
+        gain_ = 1.0f;
+        setParams(threshold_, release_);
+    }
+
+    void setParams(float threshold, float release) {
+        threshold_ = std::clamp(threshold, 0.0f, 1.0f);
+        release_ = std::clamp(release, 0.0f, 1.0f);
+        env_attack_ = 1.0f - std::exp(-1.0f / (0.005f * fs_));
+        env_release_ = 1.0f - std::exp(-1.0f / (0.05f * fs_));
+        gate_open_ = 1.0f - std::exp(-1.0f / (0.002f * fs_));   // snap open ~2 ms
+        const float closeTime = 0.01f + 0.49f * release_;       // 10 .. 500 ms
+        gate_close_ = 1.0f - std::exp(-1.0f / (closeTime * fs_));
+        level_ = 0.0005f + threshold_ * 0.15f; // env threshold ~0.0005..0.15 (the plucked string's peaks reach ~0.2)
+    }
+
+    float process(float in) override {
+        const float abs = std::fabs(in);
+        const float coef = abs > env_ ? env_attack_ : env_release_;
+        env_ += coef * (abs - env_);
+        const float target = env_ >= level_ ? 1.0f : 0.0f;
+        const float gcoef = target > gain_ ? gate_open_ : gate_close_;
+        gain_ += gcoef * (target - gain_);
+        return in * gain_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float threshold_ = 0.5f;
+    float release_ = 0.3f;
+    float level_ = 0.15f;
+    float env_ = 0.0f;
+    float gain_ = 1.0f;
+    float env_attack_ = 0.01f;
+    float env_release_ = 0.001f;
+    float gate_open_ = 0.001f;
+    float gate_close_ = 0.01f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -731,6 +780,7 @@ public:
         compressor_.prepare(fs_);
         eq_.prepare(fs_);
         wah_.prepare(fs_);
+        gate_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -798,6 +848,11 @@ public:
         wah_.setParams(rate, center, resonance);
     }
 
+    void setGate(bool enabled, float threshold, float release) {
+        gate_.enabled = enabled;
+        gate_.setParams(threshold, release);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -838,6 +893,9 @@ public:
         if (wah_.enabled) {
             in = wah_.process(in);
         }
+        if (gate_.enabled) {
+            in = gate_.process(in);
+        }
         return in;
     }
 
@@ -856,6 +914,7 @@ private:
     CompressorPedal compressor_;
     EqualizerPedal eq_;
     WahPedal wah_;
+    GatePedal gate_;
 };
 
 } // namespace gte

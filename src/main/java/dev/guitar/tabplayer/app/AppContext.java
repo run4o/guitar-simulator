@@ -83,6 +83,9 @@ public final class AppContext {
   private final DoubleProperty wahCenter = new SimpleDoubleProperty(0.5);
   private final DoubleProperty wahResonance = new SimpleDoubleProperty(0.3);
   private final BooleanProperty wahEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty gateThreshold = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty gateRelease = new SimpleDoubleProperty(0.3);
+  private final BooleanProperty gateEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -105,7 +108,8 @@ public final class AppContext {
         vibratoRate, vibratoDepth, vibratoMix, vibratoEnabled,
         compSustain, compLevel, compEnabled,
         eqBass, eqMid, eqTreble, eqEnabled,
-        wahRate, wahCenter, wahResonance, wahEnabled}) {
+        wahRate, wahCenter, wahResonance, wahEnabled,
+        gateThreshold, gateRelease, gateEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -372,6 +376,18 @@ public final class AppContext {
     return wahEnabled;
   }
 
+  public DoubleProperty gateThresholdProperty() {
+    return gateThreshold;
+  }
+
+  public DoubleProperty gateReleaseProperty() {
+    return gateRelease;
+  }
+
+  public BooleanProperty gateEnabledProperty() {
+    return gateEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -439,6 +455,9 @@ public final class AppContext {
     state.put("wah.rate", Double.toString(wahRate.get()));
     state.put("wah.center", Double.toString(wahCenter.get()));
     state.put("wah.resonance", Double.toString(wahResonance.get()));
+    state.put("gate.enabled", Boolean.toString(gateEnabled.get()));
+    state.put("gate.threshold", Double.toString(gateThreshold.get()));
+    state.put("gate.release", Double.toString(gateRelease.get()));
     return state;
   }
 
@@ -492,6 +511,9 @@ public final class AppContext {
     wahRate.set(clamp(parse(state.getOrDefault("wah.rate", "0")), 0, 1));
     wahCenter.set(clamp(parse(state.getOrDefault("wah.center", "0.5")), 0, 1));
     wahResonance.set(clamp(parse(state.getOrDefault("wah.resonance", "0.3")), 0, 1));
+    gateEnabled.set(Boolean.parseBoolean(state.getOrDefault("gate.enabled", "false")));
+    gateThreshold.set(clamp(parse(state.getOrDefault("gate.threshold", "0.5")), 0, 1));
+    gateRelease.set(clamp(parse(state.getOrDefault("gate.release", "0.3")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -539,6 +561,7 @@ public final class AppContext {
     engine.setEq(eqEnabled.get(), (float) eqBass.get(), (float) eqMid.get(), (float) eqTreble.get());
     engine.setWah(wahEnabled.get(), (float) wahRate.get(), (float) wahCenter.get(),
         (float) wahResonance.get());
+    engine.setGate(gateEnabled.get(), (float) gateThreshold.get(), (float) gateRelease.get());
   }
 
   public void applyTuning(Tuning tuning) {

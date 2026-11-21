@@ -101,6 +101,7 @@ GTE_EXPORT void      guitar_engine_set_vibrato(bool enabled, float rate, float d
 GTE_EXPORT void      guitar_engine_set_compressor(bool enabled, float sustain, float level);
 GTE_EXPORT void      guitar_engine_set_eq(bool enabled, float bass, float mid, float treble);
 GTE_EXPORT void      guitar_engine_set_wah(bool enabled, float rate, float center, float resonance);
+GTE_EXPORT void      guitar_engine_set_gate(bool enabled, float threshold, float release);
 
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);

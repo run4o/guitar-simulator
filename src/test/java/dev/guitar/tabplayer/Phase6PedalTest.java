@@ -799,4 +799,99 @@ class Phase6PedalTest {
         assertTrue(ratio < 0.85f && ratio > 0.2f,
                 "the LFO must sweep the band across the note, ratio=" + ratio);
     }
+
+    /* ---- noise gate ------------------------------------------------------- */
+
+    /** Fixture: a pluck left to decay naturally (no mute — the gate must
+     * cut the ring-out the gate-less render still carries). */
+    private WavAnalysis.Wav renderGate(boolean enabled, float threshold, float release) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f));
+        Path wav = tempDir.resolve("gate-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setGate(enabled, threshold, release);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    /** Two-pluck fixture: a loud note, then a quiet one the gate must
+     * silence (its envelope sits below the threshold). */
+    private WavAnalysis.Wav renderGateQuiet(boolean enabled, float threshold, float release) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f),
+                new RenderCommand(0.5f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.05f, 0f));
+        Path wav = tempDir.resolve("gateq-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setGate(enabled, threshold, release);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    /** Fixture: a single pluck at t=0.5 — the gate starts closed, so the
+     * RELEASE knob shapes how fast the note fades in. */
+    private WavAnalysis.Wav renderGateLate(boolean enabled, float threshold, float release) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0.5f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f));
+        Path wav = tempDir.resolve("gatel-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setGate(enabled, threshold, release);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedGateLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderGate(false, 0.8f, 0.9f);
+        WavAnalysis.Wav clean = renderGate(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed gate must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void gatePassesTheNote() throws Exception {
+        // threshold 0.2 (env threshold ~0.03): the note's tracked envelope
+        // (~0.05 — the 5 ms follower under-tracks each half-cycle) sits
+        // above it, so gain stays 1.0 through the window
+        WavAnalysis.Wav clean = renderGate(false, 0f, 0f);
+        WavAnalysis.Wav gated = renderGate(true, 0.2f, 0.3f);
+        float ratio = WavAnalysis.rms(gated, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.9f && ratio < 1.1f,
+                "the gate must pass the note untouched, ratio=" + ratio);
+    }
+
+    @Test
+    void gateSilencesNotesBelowTheThreshold() throws Exception {
+        // threshold 0.2 (env threshold ~0.03): the quiet pluck's envelope
+        // (~0.003) sits far below it, so the gate must mute it
+        WavAnalysis.Wav clean = renderGateQuiet(false, 0f, 0f);
+        WavAnalysis.Wav gated = renderGateQuiet(true, 0.2f, 0.3f);
+        float ratio = WavAnalysis.rms(gated, 0.55, 0.75) / WavAnalysis.rms(clean, 0.55, 0.75);
+        assertTrue(ratio < 0.3f,
+                "the gate must silence the quiet pluck, ratio=" + ratio);
+    }
+
+    @Test
+    void gateReleaseSmoothsTheClosure() throws Exception {
+        // threshold 0.2: the natural decay crosses the env threshold around
+        // 0.3 s while still audible — by 0.40-0.55 s the fast gate (10 ms
+        // close) is fully shut while the slow one (500 ms) still leaks the
+        // decaying tail
+        WavAnalysis.Wav fast = renderGate(true, 0.2f, 0.0f);
+        WavAnalysis.Wav slow = renderGate(true, 0.2f, 0.9f);
+        float shortTail = WavAnalysis.rms(fast, 0.40, 0.55);
+        float longTail = WavAnalysis.rms(slow, 0.40, 0.55);
+        assertTrue(longTail > 2.0f * shortTail,
+                "release must smooth the gate closure: fast=" + shortTail + " slow=" + longTail);
+    }
 }

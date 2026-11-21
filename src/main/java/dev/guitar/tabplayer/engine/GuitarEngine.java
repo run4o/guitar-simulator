@@ -55,6 +55,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setCompressorFn;
   private final MethodHandle setEqFn;
   private final MethodHandle setWahFn;
+  private final MethodHandle setGateFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -121,6 +122,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setWahFn = linker.downcallHandle(symbols.find("guitar_engine_set_wah").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
+      setGateFn = linker.downcallHandle(symbols.find("guitar_engine_set_gate").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -542,6 +545,18 @@ public final class GuitarEngine implements AutoCloseable {
       setWahFn.invokeExact(enabled, rate, center, resonance);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_wah failed", t);
+    }
+  }
+
+  /**
+   * Noise gate: mutes the path when the envelope drops below the
+   * threshold (threshold/release 0..1), after the wah, on both paths.
+   */
+  public void setGate(boolean enabled, float threshold, float release) {
+    try {
+      setGateFn.invokeExact(enabled, threshold, release);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_gate failed", t);
     }
   }
 

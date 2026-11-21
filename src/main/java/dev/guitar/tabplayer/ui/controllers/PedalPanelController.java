@@ -189,5 +189,16 @@ public class PedalPanelController {
     wahCenter.valueProperty().bindBidirectional(ctx.wahCenterProperty());
     wahRes.valueProperty().bindBidirectional(ctx.wahResonanceProperty());
     pedalRow.getChildren().add(wah);
+
+    // GATE: silence below the threshold
+    Knob gateThr = new Knob(0, 1, 0.5, 44);
+    Knob gateRel = new Knob(0, 1, 0.3, 44);
+    PedalBox gate = new PedalBox("GATE");
+    gate.addKnob(gateThr, "THRESH");
+    gate.addKnob(gateRel, "RELEASE");
+    gate.enabledProperty().bindBidirectional(ctx.gateEnabledProperty());
+    gateThr.valueProperty().bindBidirectional(ctx.gateThresholdProperty());
+    gateRel.valueProperty().bindBidirectional(ctx.gateReleaseProperty());
+    pedalRow.getChildren().add(gate);
   }
 }
