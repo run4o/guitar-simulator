@@ -564,12 +564,13 @@ public class ScoreView extends Canvas {
         g.strokeLine(x + taperEnd, laneCenter, x + cellW, laneCenter);
       }
     }
-    if (cellW > 48) {
-      // the digit repeats across long holds, like the tab source
+    if (cellW > layout.barPx * 1.5) {
+      // the digit repeats only on holds that span more than a bar (let
+      // ring), like the tab source
       g.setFill(Color.rgb(255, 255, 255, 0.4));
       g.setFont(Font.font("Share Tech Mono", 10));
       g.setTextBaseline(VPos.CENTER);
-      for (double dx = onsetW + 26; dx < cellW - 8; dx += 28) {
+      for (double dx = onsetW + 40; dx < cellW - 8; dx += 40) {
         g.fillText(label, x + dx, laneCenter);
       }
     }
