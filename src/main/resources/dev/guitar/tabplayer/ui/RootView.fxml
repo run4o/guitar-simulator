@@ -2,6 +2,7 @@
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
 
 <!-- Main page: root controller wiring happens through fx:include controller
      injection; the top strip, the tab panel and the three bottom console
@@ -19,11 +20,14 @@
     <fx:include fx:id="tabPanel" source="TabPanel.fxml"/>
   </center>
   <bottom>
-    <HBox spacing="12">
-      <fx:include fx:id="guitarPanel" source="GuitarPanel.fxml"/>
-      <fx:include fx:id="tunerPanel" source="TunerPanel.fxml"/>
-      <fx:include fx:id="soundPanel" source="SoundPanel.fxml"/>
-      <fx:include fx:id="volumePanel" source="VolumePanel.fxml"/>
-    </HBox>
+    <VBox spacing="6">
+      <fx:include fx:id="pedalPanel" source="PedalPanel.fxml"/>
+      <HBox spacing="12">
+        <fx:include fx:id="guitarPanel" source="GuitarPanel.fxml"/>
+        <fx:include fx:id="tunerPanel" source="TunerPanel.fxml"/>
+        <fx:include fx:id="soundPanel" source="SoundPanel.fxml"/>
+        <fx:include fx:id="volumePanel" source="VolumePanel.fxml"/>
+      </HBox>
+    </VBox>
   </bottom>
 </BorderPane>

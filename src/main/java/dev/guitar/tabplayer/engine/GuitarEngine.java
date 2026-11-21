@@ -42,6 +42,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle clockFn;
   private final MethodHandle renderSequenceFn;
   private final MethodHandle setFxFn;
+  private final MethodHandle setBoostFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -82,6 +83,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.of(C_BOOL, ValueLayout.ADDRESS, C_FLOAT, ValueLayout.ADDRESS, C_INT));
       setFxFn = linker.downcallHandle(symbols.find("guitar_engine_set_fx").orElseThrow(),
           FunctionDescriptor.ofVoid(C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
+      setBoostFn = linker.downcallHandle(symbols.find("guitar_engine_set_boost").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -342,6 +345,22 @@ public final class GuitarEngine implements AutoCloseable {
       setGainFn.invokeExact(stringIndex, gain);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_string_gain failed", t);
+    }
+  }
+
+  /* ------------------------------------------------------------------
+   * Pedalboard
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Clean boost pedal: pure linear gain 0..18 dB applied before the amp FX
+   * on both real-time and offline-render paths.
+   */
+  public void setBoost(boolean enabled, float gainDb) {
+    try {
+      setBoostFn.invokeExact(enabled, gainDb);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_boost failed", t);
     }
   }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.HBox?>
+
+<!-- Pedalboard: one stompbox tile per pedal, laid out left-to-right in signal
+     order (guitar -> pedals -> amp FX). Grows as pedals land. -->
+<ScrollPane fx:controller="dev.guitar.tabplayer.ui.controllers.PedalPanelController"
+            styleClass="pedal-board"
+            hbarPolicy="AS_NEEDED" vbarPolicy="NEVER"
+            fitToHeight="true"
+            xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <HBox fx:id="pedalRow" spacing="10" alignment="TOP_LEFT">
+    <Label styleClass="console-divider"/>
+  </HBox>
+</ScrollPane>

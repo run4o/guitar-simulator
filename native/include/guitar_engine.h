@@ -78,6 +78,9 @@ GTE_EXPORT bool      guitar_engine_render_sequence_to_wav(const char* path_utf8,
  * reverb_mix 0..1, master_gain 0..2. */
 GTE_EXPORT void      guitar_engine_set_fx(float drive, float tone, float reverb_mix, float master_gain);
 
+/* Pedalboard: clean boost, 0..18 dB, applied before the amp FX on both paths. */
+GTE_EXPORT void      guitar_engine_set_boost(bool enabled, float gain_db);
+
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);
 

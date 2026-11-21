@@ -2,6 +2,7 @@
 #include "plucked_string.h"
 #include "wav_writer.h"
 #include "dsp_chain.h"
+#include "pedals.h"
 
 #include <algorithm>
 #include <array>
@@ -101,6 +102,13 @@ struct FxParams {
 };
 FxParams g_fx;
 
+/* Pedalboard parameters (one slot per pedal, added as pedals land). */
+struct PedalParams {
+    std::atomic<bool> boost_enabled{false};
+    std::atomic<float> boost_gain{0.0f}; // dB, 0..18
+};
+PedalParams g_pedals;
+
 /* Per-string channel gains (faders) + output level envelope for the VU meter. */
 struct ChannelState {
     std::array<std::atomic<float>, kStringCount> gains;
@@ -136,6 +144,8 @@ struct EngineState {
     gte::PluckedString strings[kStringCount];
     gte::FxDsp fx_l; // per-channel FX keeps the per-string pan spread
     gte::FxDsp fx_r;
+    gte::PedalChain pedals_l; // pedalboard runs before the amp section
+    gte::PedalChain pedals_r;
 
     ma_device device{};
     bool device_ready = false;
@@ -193,6 +203,16 @@ void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
     }
 }
 
+void sync_pedal_params(gte::PedalChain& chain, float cached[2]) {
+    const float enabled = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float gain = g_pedals.boost_gain.load(std::memory_order_relaxed);
+    if (enabled != cached[0] || gain != cached[1]) {
+        chain.setBoost(enabled > 0.5f, gain);
+        cached[0] = enabled;
+        cached[1] = gain;
+    }
+}
+
 void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, ma_uint32 frames) {
     auto* out = static_cast<float*>(output);
     EngineState& s = g;
@@ -204,6 +224,10 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
     sync_fx_params(s.fx_l, fx_cached_l);
     sync_fx_params(s.fx_r, fx_cached_r);
+    static thread_local float pedal_cached_l[2] = { -1.0f, -1.0f };
+    static thread_local float pedal_cached_r[2] = { -1.0f, -1.0f };
+    sync_pedal_params(s.pedals_l, pedal_cached_l);
+    sync_pedal_params(s.pedals_r, pedal_cached_r);
 
     for (ma_uint32 i = 0; i < frames; ++i) {
         while (s.queue.pop_if_reached(base + i, ev)) {
@@ -221,8 +245,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
             leftSum += v * kPanLeft[k];
             rightSum += v * kPanRight[k];
         }
-        const float outL = s.fx_l.process(leftSum * 0.45f);
-        const float outR = s.fx_r.process(rightSum * 0.45f);
+        const float outL = s.fx_l.process(s.pedals_l.process(leftSum * 0.45f));
+        const float outR = s.fx_r.process(s.pedals_r.process(rightSum * 0.45f));
         out[2 * i]     = outL;
         out[2 * i + 1] = outR;
         update_level(std::max(std::fabs(outL), std::fabs(outR)));
@@ -362,6 +386,13 @@ GTE_EXPORT void guitar_engine_set_fx(float drive, float tone, float reverb_mix, 
     g_fx.master.store(master_gain, std::memory_order_relaxed);
 }
 
+/* Pedalboard: clean boost, 0..18 dB gain, applied before the amp FX on both
+ * real-time and offline paths. */
+GTE_EXPORT void guitar_engine_set_boost(bool enabled, float gain_db) {
+    g_pedals.boost_enabled.store(enabled, std::memory_order_relaxed);
+    g_pedals.boost_gain.store(std::clamp(gain_db, 0.0f, 18.0f), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -402,6 +433,12 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
         float cached[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
         sync_fx_params(fx, cached);
     }
+    gte::PedalChain pedals;
+    pedals.prepare(fs);
+    {
+        float cached[2] = { -1.0f, -1.0f };
+        sync_pedal_params(pedals, cached);
+    }
 
     const int64_t total_samples = static_cast<int64_t>(duration_seconds * fs);
     size_t next_command = 0;
@@ -415,7 +452,7 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
         for (int i = 0; i < kStringCount; ++i) {
             sum += strings[i].render_sample() * offline_gains[i];
         }
-        const float out = fx.process(sum * 0.45f);
+        const float out = fx.process(pedals.process(sum * 0.45f));
         update_level(out);
         wav.write(out);
     }

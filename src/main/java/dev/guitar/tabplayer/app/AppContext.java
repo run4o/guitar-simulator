@@ -4,7 +4,9 @@ import dev.guitar.tabplayer.engine.GuitarEngine;
 import dev.guitar.tabplayer.model.Tuning;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.DoubleProperty;
+import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 
 /**
@@ -30,6 +32,10 @@ public final class AppContext {
   private final DoubleProperty reverb = new SimpleDoubleProperty(0);
   private final DoubleProperty master = new SimpleDoubleProperty(1);
 
+  // Pedalboard parameters: one slot per pedal, pushed as one call each.
+  private final DoubleProperty boostGain = new SimpleDoubleProperty(6);
+  private final BooleanProperty boostEnabled = new SimpleBooleanProperty(false);
+
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
     this.engine = engine;
@@ -40,6 +46,8 @@ public final class AppContext {
     for (DoubleProperty p : new DoubleProperty[]{drive, tone, reverb, master}) {
       p.addListener((o, ov, nv) -> applyFx());
     }
+    boostGain.addListener((o, ov, nv) -> applyPedals());
+    boostEnabled.addListener((o, ov, nv) -> applyPedals());
   }
 
   /**
@@ -108,6 +116,14 @@ public final class AppContext {
     return master;
   }
 
+  public DoubleProperty boostGainProperty() {
+    return boostGain;
+  }
+
+  public BooleanProperty boostEnabledProperty() {
+    return boostEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -116,12 +132,25 @@ public final class AppContext {
     this.master.set(Math.max(0, Math.min(2, master)));
   }
 
+  /** Project-load setter for the pedalboard. */
+  public void setBoostValues(boolean enabled, double gain) {
+    boostEnabled.set(enabled);
+    boostGain.set(Math.max(0, Math.min(18, gain)));
+  }
+
   private void applyFx() {
     if (!engineReady) {
       return;
     }
     engine.setFx((float) drive.get(), (float) tone.get(), (float) reverb.get(),
         (float) master.get());
+  }
+
+  private void applyPedals() {
+    if (!engineReady) {
+      return;
+    }
+    engine.setBoost(boostEnabled.get(), (float) boostGain.get());
   }
 
   public void applyTuning(Tuning tuning) {

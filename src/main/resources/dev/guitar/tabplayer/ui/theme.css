@@ -28,6 +28,43 @@
     -fx-padding: 8;
 }
 
+/* ---- pedalboard ------------------------------------------------------ */
+
+.pedal-board {
+    -fx-background-color: #1C1F2B;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 6;
+    -fx-padding: 6;
+}
+
+.pedal-board > .viewport {
+    -fx-background-color: transparent;
+}
+
+.pedal-board .content {
+    -fx-background-color: #1C1F2B;
+}
+
+.pedal-box {
+    -fx-background-color: #262A38;
+    -fx-background-radius: 5;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 5;
+    -fx-padding: 8 10 8 10;
+    -fx-min-width: 86;
+    -fx-pref-width: 86;
+}
+
+.pedal-name {
+    -fx-font-family: 'Bebas Neue';
+    -fx-font-size: 15px;
+    -fx-text-fill: #EFEFEF;
+}
+
+.pedal-led {
+    -fx-stroke: #2A2E40;
+}
+
 /* ---- header -------------------------------------------------------- */
 
 .plate-title {

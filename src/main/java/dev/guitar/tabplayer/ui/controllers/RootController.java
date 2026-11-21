@@ -32,6 +32,8 @@ public class RootController {
   private VolumePanelController volumePanelController;
   @FXML
   private TunerPanelController tunerPanelController;
+  @FXML
+  private PedalPanelController pedalPanelController;
 
   private AppContext ctx;
   private PlaybackService playback;
@@ -71,6 +73,7 @@ public class RootController {
     soundPanelController.init(ctx);
     volumePanelController.init(ctx);
     tunerPanelController.init(ctx);
+    pedalPanelController.init(ctx);
 
     // App-header File menu: dialogs live in the header panel, actions here.
     appHeader().setActionHandler(this::handleMenuAction);
@@ -245,7 +248,8 @@ public class RootController {
           guitarPanelController.getBpm(),
           guitarPanelController.getTuning(),
           ctx.driveProperty().get(), ctx.toneProperty().get(),
-          ctx.reverbProperty().get(), ctx.masterProperty().get()));
+          ctx.reverbProperty().get(), ctx.masterProperty().get(),
+          ctx.boostEnabledProperty().get(), ctx.boostGainProperty().get()));
       ctx.status("PROJECT SAVED " + file.getFileName().toString().toUpperCase());
     } catch (Exception e) {
       ctx.status("PROJECT SAVE FAILED: " + e.getMessage());
@@ -259,6 +263,7 @@ public class RootController {
       // first (tuning/fx) and the tab last — one final compile.
       guitarPanelController.setBpm(project.bpm());
       ctx.setFxValues(project.drive(), project.tone(), project.reverb(), project.master());
+      ctx.setBoostValues(project.boostEnabled(), project.boostGain());
       guitarPanelController.selectTuning(project.tuning());
       tabPanelController.replaceTabText(project.tab());
       ctx.status("PROJECT LOADED " + file.getFileName().toString().toUpperCase());

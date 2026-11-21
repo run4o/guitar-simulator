@@ -22,9 +22,18 @@ public final class ProjectFile {
   private static final String TONE_KEY = "fx.tone";
   private static final String REVERB_KEY = "fx.reverb";
   private static final String MASTER_KEY = "fx.master";
+  private static final String BOOST_ENABLED_KEY = "pedal.boost.enabled";
+  private static final String BOOST_GAIN_KEY = "pedal.boost.gain";
 
   public record Project(String tab, int bpm, Tuning tuning,
-      double drive, double tone, double reverb, double master) {
+      double drive, double tone, double reverb, double master,
+      boolean boostEnabled, double boostGain) {
+
+    /** Pre-pedalboard format (boost state defaults). */
+    public Project(String tab, int bpm, Tuning tuning,
+        double drive, double tone, double reverb, double master) {
+      this(tab, bpm, tuning, drive, tone, reverb, master, false, 6.0);
+    }
   }
 
   private ProjectFile() {
@@ -40,6 +49,8 @@ public final class ProjectFile {
     props.setProperty(TONE_KEY, Double.toString(project.tone()));
     props.setProperty(REVERB_KEY, Double.toString(project.reverb()));
     props.setProperty(MASTER_KEY, Double.toString(project.master()));
+    props.setProperty(BOOST_ENABLED_KEY, Boolean.toString(project.boostEnabled()));
+    props.setProperty(BOOST_GAIN_KEY, Double.toString(project.boostGain()));
     try (OutputStream out = Files.newOutputStream(file)) {
       props.store(out, "Guitar Tab Player project");
     }
@@ -57,7 +68,13 @@ public final class ProjectFile {
         parseDouble(props.getProperty(DRIVE_KEY), 0),
         parseDouble(props.getProperty(TONE_KEY), 1),
         parseDouble(props.getProperty(REVERB_KEY), 0),
-        parseDouble(props.getProperty(MASTER_KEY), 1));
+        parseDouble(props.getProperty(MASTER_KEY), 1),
+        parseBool(props.getProperty(BOOST_ENABLED_KEY), false),
+        parseDouble(props.getProperty(BOOST_GAIN_KEY), 6));
+  }
+
+  private static boolean parseBool(String value, boolean fallback) {
+    return value == null ? fallback : Boolean.parseBoolean(value);
   }
 
   private static int parseInt(String value, int fallback) {
