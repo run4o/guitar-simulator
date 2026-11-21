@@ -130,8 +130,14 @@ public final class GpImport {
   /** A parsed note event, in the app's string index space (0 = low E). */
   private static final class NoteEvent {
     final int stringIndex;
-    final int fret;
+    int fret;
     final boolean dead;
+    boolean hammerPull;   // legato origin: h/p before the next note on this string
+    int slideOut;         // 0 none, 1 up '/', 2 down '\'
+    double bendSemitones; // 0 = none
+    boolean palmMute;
+    boolean tap;
+    int col;              // placed column (set by the generator)
 
     NoteEvent(int stringIndex, int fret, boolean dead) {
       this.stringIndex = stringIndex;
@@ -144,6 +150,7 @@ public final class GpImport {
     final List<NoteEvent> notes = new ArrayList<>();
     boolean dotted;
     boolean empty;
+    boolean tap;
     int tupletNumerator = 1;
     int tupletDenominator = 1;
     int durationValue; // the raw GP duration byte (-2..4)
@@ -173,6 +180,7 @@ public final class GpImport {
     private final Reader r;
     private final List<String> warnings = new ArrayList<>();
     private int version;
+    private boolean warnedArticulationSkip;
     private int bpm = 120;
     private String title = "";
     private String artist = "";
@@ -480,7 +488,7 @@ public final class GpImport {
         r.stringIntUnused(); // beat text
       }
       if ((flags & 0x08) != 0) {
-        readBeatEffects();
+        readBeatEffects(beat);
       }
       if ((flags & 0x10) != 0) {
         readMixTableChange();
@@ -488,7 +496,7 @@ public final class GpImport {
       int stringFlags = r.u1();
       for (int i = 6; i >= 0; i--) {
         if ((stringFlags & (1 << i)) != 0) {
-          NoteEvent note = readNote(track, 6 - i);
+          NoteEvent note = readNote(track, 6 - i, beat.tap);
           if (note != null) {
             beat.notes.add(note);
           }
@@ -548,11 +556,12 @@ public final class GpImport {
       }
     }
 
-    private void readBeatEffects() {
+    private void readBeatEffects(Beat beat) {
       int flags = r.u1();
       int flags2 = version >= 400 ? r.u1() : 0;
       if ((flags & 0x20) != 0) {
-        r.s1(); // slap/pop/tap
+        int slap = r.s1(); // 1 = tap, 2 = slap, 3 = pop
+        beat.tap = slap == 1;
         if (version < 400) {
           r.skip(4);
         }
@@ -645,7 +654,7 @@ public final class GpImport {
      * Reads one note. Returns null when it should not be rendered (no fret,
      * tie destination) — the stream is always consumed fully.
      */
-    private NoteEvent readNote(Track track, int gpStringIndex) {
+    private NoteEvent readNote(Track track, int gpStringIndex, boolean tap) {
       int flags = r.u1();
       boolean dead = false;
       boolean tie = false;
@@ -671,6 +680,8 @@ public final class GpImport {
       if ((flags & 0x80) != 0) {
         r.skip(2); // left/right hand fingers
       }
+      NoteEvent note = new NoteEvent(5 - gpStringIndex, fret, dead);
+      note.tap = tap;
       if (version >= 500) {
         if ((flags & 0x01) != 0) {
           r.skip(8); // duration percent (float64 LE)
@@ -678,7 +689,7 @@ public final class GpImport {
         r.u1(); // flags2 (accidental swap)
       }
       if ((flags & 0x08) != 0) {
-        readNoteEffects();
+        readNoteEffects(note);
       }
 
       if (gpStringIndex >= 6) {
@@ -692,44 +703,64 @@ public final class GpImport {
         warn("tied notes collapsed to ring-outs");
         return null;
       }
-      int appStringIndex = 5 - gpStringIndex; // GP 0 = high e -> app 5; GP 5 = low E -> app 0
-      return new NoteEvent(appStringIndex, dead ? -1 : fret, dead);
+      note.fret = dead ? -1 : fret; // GP 0 = high e -> app 5; GP 5 = low E -> app 0
+      return note;
     }
 
-    private void readNoteEffects() {
+    private void readNoteEffects(NoteEvent note) {
       int flags = r.u1();
       int flags2 = version >= 400 ? r.u1() : 0;
       if ((flags & 0x01) != 0) {
-        readBend();
+        note.bendSemitones = readBend();
+      }
+      if ((flags & 0x02) != 0) {
+        note.hammerPull = true; // hammer-on/pull-off origin
       }
       if ((flags & 0x10) != 0) {
         readGrace();
       }
       if (flags2 != 0 && (flags2 & 0x04) != 0) {
-        r.u1(); // tremolo picking speed
+        r.u1(); // tremolo picking speed (phase 3: expansion)
       }
       if (flags2 != 0 && (flags2 & 0x08) != 0) {
-        r.s1(); // slide
+        int type = r.s1(); // slide
+        if (version >= 500) {
+          if ((type & 4) != 0) {
+            note.slideOut = 2; // out-down
+          } else if ((type & (1 | 2 | 8)) != 0) {
+            note.slideOut = 1; // shift / legato / out-up -> up token
+          }
+        } else if (type == 1 || type == 2 || type == 4) {
+          note.slideOut = 1;
+        } else if (type == 3) {
+          note.slideOut = 2;
+        }
       }
       if (flags2 != 0 && (flags2 & 0x10) != 0) {
         readArtificialHarmonic();
       }
       if (flags2 != 0 && (flags2 & 0x20) != 0) {
-        r.skip(2); // trill fret + speed
+        r.skip(2); // trill fret + speed (phase 3: expansion)
+      }
+      if (flags2 != 0 && (flags2 & 0x02) != 0) {
+        note.palmMute = true;
       }
     }
 
-    private void readBend() {
+    /** @return the bend's maximum semitones (raw bend values are 25 per semitone) */
+    private double readBend() {
       r.u1(); // type
       r.u4(); // value
       int pointCount = r.u4();
       guard(pointCount, MAX_BEND_POINTS, "bend points");
+      double maxSemitones = 0;
       for (int i = 0; i < pointCount; i++) {
         r.u4(); // offset
-        r.u4(); // value
+        int value = r.u4();
+        maxSemitones = Math.max(maxSemitones, Math.abs(value) / 25.0);
         r.u1(); // vibrato
       }
-      warn("bends/slides/hammer-ons ignored (rendered as plain notes)");
+      return maxSemitones;
     }
 
     private void readGrace() {
@@ -886,9 +917,9 @@ public final class GpImport {
       double scale = total > quartersAvailable ? (double) (cols - 1) / total
           : cols / quartersAvailable;
 
-      // per-string placed notes in time order: {col, fret} (-1 = dead)
+      // per-string placed notes in time order
       @SuppressWarnings("unchecked")
-      List<int[]>[] byString = new List[6];
+      List<NoteEvent>[] byString = new List[6];
       for (int s = 0; s < 6; s++) {
         byString[s] = new ArrayList<>();
       }
@@ -898,43 +929,87 @@ public final class GpImport {
         int col = (int) Math.round(pos * scale);
         for (NoteEvent note : beat.notes) {
           if (note.stringIndex >= 0 && note.stringIndex <= 5) {
-            byString[note.stringIndex].add(new int[]{col, note.dead ? -1 : note.fret});
+            note.col = col;
+            byString[note.stringIndex].add(note);
           }
         }
         pos += quarters;
       }
 
       int extent = 0;
+      boolean warnedSkip = warnedArticulationSkip;
       for (int s = 0; s < 6; s++) {
-        List<int[]> placed = byString[s];
-        int prevEnd = -1; // exclusive column after the last glyph/fill
+        List<NoteEvent> placed = byString[s];
+        int prevEnd = -1; // exclusive column after the last glyph/fill/token
         for (int k = 0; k < placed.size(); k++) {
-          int fret = placed.get(k)[1];
-          boolean dead = fret < 0;
-          String glyph = dead ? "x" : Integer.toString(fret);
-          int col = placed.get(k)[0];
-          int start = prevEnd >= 0 ? Math.max(col, prevEnd + 1) : Math.max(col, 0);
+          NoteEvent note = placed.get(k);
+          boolean dead = note.dead;
+          String glyph = dead ? "x" : Integer.toString(note.fret);
+          int start = prevEnd >= 0 ? Math.max(note.col, prevEnd + 1) : Math.max(note.col, 0);
+          // tap marker before the note: 't' + one separating column
+          if (note.tap && start - (prevEnd + 1) >= 2 && start >= 2) {
+            cells[s][start - 2] = 't';
+          }
           for (int c = start; c < start + glyph.length() && c < cells[s].length; c++) {
             cells[s][c] = glyph.charAt(c - start);
           }
           int last = start + glyph.length() - 1;
-          // sustain fill: repeat single-digit frets up to the next event on
-          // this string (minus one separating column) or the meter's end —
-          // never past the meter (fills are time-based, not separation-driven)
-          if (!dead && glyph.length() == 1) {
-            int fillEnd = k + 1 < placed.size()
-                ? Math.min(placed.get(k + 1)[0] - 2, cols - 1)
-                : cols - 1;
+
+          // inter-note articulation token between this note and the next:
+          // hammer/pull, slide, bend (priority order). Tokens suppress the
+          // sustain fill — the note rings into the target instead.
+          NoteEvent next = k + 1 < placed.size() ? placed.get(k + 1) : null;
+          String token = null;
+          if (!dead && note.bendSemitones != 0) {
+            token = "b" + (note.fret + (int) Math.round(note.bendSemitones));
+          } else if (!dead && note.hammerPull && next != null && !next.dead) {
+            token = next.fret >= note.fret ? "h" : "p";
+          } else if (!dead && note.slideOut != 0) {
+            token = note.slideOut == 2 ? "\\" : "/";
+          }
+          if (token != null && next != null) {
+            int tokenStart = next.col - 1 - token.length();
+            if (tokenStart > last) {
+              for (int c = tokenStart; c < tokenStart + token.length() && c < cells[s].length; c++) {
+                cells[s][c] = token.charAt(c - tokenStart);
+              }
+              last = tokenStart + token.length() - 1;
+            } else if (!warnedSkip) {
+              warnedArticulationSkip = warnedSkip = true;
+              warn("articulation tokens omitted — bar too dense");
+            }
+          } else if (!dead && glyph.length() == 1 && !note.palmMute) {
+            // sustain fill: repeat the digit across the note's duration,
+            // reserving room for the next note's tap/PM markers
+            int reserve = next != null && (next.tap || next.palmMute) ? 4 : 2;
+            int fillEnd = next != null ? Math.min(next.col - reserve, cols - 1) : cols - 1;
             for (int c = start + 1; c <= fillEnd; c++) {
               cells[s][c] = glyph.charAt(0);
             }
             last = Math.max(last, fillEnd);
           }
-          prevEnd = last + 1;
-          extent = Math.max(extent, last + 1);
+
+          // palm-mute region markers around runs of muted notes: the opener
+          // sits before the run's first note, the closer after its last
+          boolean runStart = k == 0 || !placed.get(k - 1).palmMute;
+          boolean runEnd = next == null || !next.palmMute;
+          if (note.palmMute && runStart && prevEnd <= start - 3 && start >= 3) {
+            cells[s][start - 3] = 'P';
+            cells[s][start - 2] = 'M';
+            prevEnd = start - 1;
+          } else if (note.palmMute && runStart && !warnedSkip) {
+            warnedArticulationSkip = warnedSkip = true;
+            warn("articulation tokens omitted — bar too dense");
+          }
+          if (note.palmMute && runEnd && last + 3 < cells[s].length) {
+            cells[s][last + 2] = 'P';
+            cells[s][last + 3] = 'M';
+            prevEnd = last + 4;
+          }
+          prevEnd = Math.max(prevEnd, last + 1);
+          extent = Math.max(extent, prevEnd);
         }
       }
-      // a bar is never narrower than its own time signature's grid
       return Math.max(extent, cols);
     }
 

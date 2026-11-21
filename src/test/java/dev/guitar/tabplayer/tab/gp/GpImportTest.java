@@ -102,6 +102,38 @@ class GpImportTest {
   }
 
   @Test
+  void importsArticulations() throws IOException {
+    // 4 bars: hammer origin, bend +4, palm mute, tap — emitted as the tab's
+    // articulation tokens and compiled to the engine's techniques
+    Path file = tempDir.resolve("articulations.gp5");
+    Files.write(file, gp5Fixture(4, 0, null, 4, 4, true));
+
+    GpImport.GpSong song = GpImport.importFile(file);
+    String ascii = song.ascii();
+
+    // bar 1: hammer origin -> 'h' before the fret-5 target
+    assertTrue(ascii.contains("h 5"), "hammer token missing:\n" + ascii);
+    // bar 2: bend +4 on fret 3 -> absolute target 7
+    assertTrue(ascii.contains("b7 5"), "bend token missing:\n" + ascii);
+    // bar 3: palm mute region around the fret-5 note
+    assertTrue(ascii.contains("PM 5 PM"), "palm mute markers missing:\n" + ascii);
+    // bar 4: tap marker before the fret-5 note
+    assertTrue(ascii.contains("t 5"), "tap token missing:\n" + ascii);
+
+    // compiled: legato (hammer + tap), bend with relative semitones, and a
+    // palm-muted pluck
+    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+    var commands = timeline.commands();
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 1 && c.stringIndex() == 5 && c.fret() == 5),
+        "hammer/tap must compile to LEGATO on the high e string");
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 2 && Math.abs(c.a() - 4) < 0.01),
+        "bend must compile with +4 semitones");
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.stringIndex() == 5 && c.fret() == 5 && c.b() == 1.0f),
+        "palm-mute region must reach the fret-5 pluck");
+    assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("out of range")));
+  }
+
+  @Test
   void separatesAdjacentChugNotes() throws IOException {
     // Regression: 16th-note chugs landed on consecutive grid columns, merging
     // into one giant digit run ("7000500070003") that overflowed the tab
@@ -133,6 +165,11 @@ class GpImportTest {
    */
   private static byte[] gp5Fixture(int bars, int overfullFrets, int[] chugFrets,
       int numerator, int denominator) throws IOException {
+    return gp5Fixture(bars, overfullFrets, chugFrets, numerator, denominator, false);
+  }
+
+  private static byte[] gp5Fixture(int bars, int overfullFrets, int[] chugFrets,
+      int numerator, int denominator, boolean withArticulations) throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     DataOutputStream d = new DataOutputStream(out);
 
@@ -232,7 +269,65 @@ class GpImportTest {
     d.writeByte(0); // effect category (empty)
 
     // bar 0, track 0: GP5 voice header + 2 voices
-    d.writeByte(0); // voice header
+    if (withArticulations) {
+      // four bars, one half-note each on the high e string; beat 2 carries a
+      // per-bar articulation: hammer origin, bend, palm mute, tap
+      for (int i = 0; i < 4; i++) {
+        d.writeByte(0); // voice header
+        writeIntLE(d, 2); // beats
+        // beat 1: half note, fret 3, carrying the hammer/bend articulation
+        boolean beat1Effects = i <= 1;
+        d.writeByte(0x00); // beat flags
+        d.writeByte(-1); // duration: half
+        d.writeByte(0x40); // string flags: high e
+        d.writeByte(beat1Effects ? 0x28 : 0x20); // note flags (+ effects)
+        d.writeByte(1); // note type: regular
+        d.writeByte(3); // fret
+        d.writeByte(0); // note flags2
+        if (i == 0) {
+          // hammer/pull origin: effFlags1 0x02 -> 'h' before beat 2's note
+          d.writeByte(0x02);
+          d.writeByte(0x00);
+        } else if (i == 1) {
+          // bend +4: effFlags1 0x01 + bend block -> 'b7' before beat 2's note
+          d.writeByte(0x01);
+          d.writeByte(0x00);
+          d.writeByte(1); // bend type
+          writeIntLE(d, 100); // value
+          writeIntLE(d, 1); // point count
+          writeIntLE(d, 30); // offset
+          writeIntLE(d, 100); // value (100 / 25 = 4 semitones)
+          d.writeByte(0); // vibrato
+        }
+        writeShortLE(d, 0); // beat flags2
+        // beat 2: half note, fret 5, with the bar's palm mute / tap
+        boolean tap = i == 3;
+        boolean palm = i == 2;
+        d.writeByte(tap ? 0x08 : 0x00); // beat flags: effects for the tap
+        d.writeByte(-1); // duration: half
+        if (tap) {
+          // beat effects: slap 1 = tap
+          d.writeByte(0x20); // effect flags1: slap present
+          d.writeByte(0x00); // effect flags2
+          d.writeByte(1); // slap = tap
+        }
+        d.writeByte(0x40); // string flags: high e
+        d.writeByte(palm ? 0x28 : 0x20); // note flags (+ effects)
+        d.writeByte(1); // note type: regular
+        d.writeByte(5); // fret
+        d.writeByte(0); // note flags2
+        if (palm) {
+          // palm mute: effFlags2 0x02
+          d.writeByte(0x00);
+          d.writeByte(0x02);
+        }
+        writeShortLE(d, 0); // beat flags2
+        writeIntLE(d, 0); // second voice: 0 beats
+      }
+    }
+    if (!withArticulations) {
+      d.writeByte(0); // voice header (bar 0's chunk, before the beat data)
+    }
     if (chugFrets != null) {
       writeIntLE(d, chugFrets.length); // beats
       for (int fret : chugFrets) {
@@ -289,7 +384,8 @@ class GpImportTest {
     }
 
     // bars 1..n, track 0: one empty voice + empty second voice
-    for (int i = 1; i < bars; i++) {
+    // (skipped for the articulation fixture, which writes all its bars)
+    for (int i = withArticulations ? bars : 1; i < bars; i++) {
       d.writeByte(0); // voice header
       writeIntLE(d, 1); // beats
       d.writeByte(0x40);
