@@ -45,6 +45,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setBoostFn;
   private final MethodHandle setOverdriveFn;
   private final MethodHandle setDistortionFn;
+  private final MethodHandle setFuzzFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -91,6 +92,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setDistortionFn = linker.downcallHandle(symbols.find("guitar_engine_set_distortion").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
+      setFuzzFn = linker.downcallHandle(symbols.find("guitar_engine_set_fuzz").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -391,6 +394,18 @@ public final class GuitarEngine implements AutoCloseable {
       setDistortionFn.invokeExact(enabled, drive, tone, level);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_distortion failed", t);
+    }
+  }
+
+  /**
+   * Fuzz pedal: buzzy near-square over-saturation (fuzz 0..1, volume 0..1),
+   * first in the dirt section, on both real-time and offline-render paths.
+   */
+  public void setFuzz(boolean enabled, float fuzz, float volume) {
+    try {
+      setFuzzFn.invokeExact(enabled, fuzz, volume);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_fuzz failed", t);
     }
   }
 

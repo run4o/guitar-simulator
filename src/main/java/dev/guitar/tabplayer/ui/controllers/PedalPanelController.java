@@ -28,6 +28,17 @@ public class PedalPanelController {
     gain.valueProperty().bindBidirectional(ctx.boostGainProperty());
     pedalRow.getChildren().add(boost);
 
+    // FUZZ: over-saturated buzzy near-square
+    Knob fuzz = new Knob(0, 1, 0.7, 44);
+    Knob fuzzVol = new Knob(0, 1, 0.5, 44);
+    PedalBox fuzzBox = new PedalBox("FUZZ");
+    fuzzBox.addKnob(fuzz, "FUZZ");
+    fuzzBox.addKnob(fuzzVol, "VOLUME");
+    fuzzBox.enabledProperty().bindBidirectional(ctx.fuzzEnabledProperty());
+    fuzz.valueProperty().bindBidirectional(ctx.fuzzAmountProperty());
+    fuzzVol.valueProperty().bindBidirectional(ctx.fuzzVolumeProperty());
+    pedalRow.getChildren().add(fuzzBox);
+
     // OVERDRIVE: warm soft-clipping grit
     Knob odDrive = new Knob(0, 1, 0.5, 44);
     Knob odTone = new Knob(0, 1, 0.5, 44);

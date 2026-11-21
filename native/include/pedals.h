@@ -49,6 +49,48 @@ private:
 };
 
 /*
+ * Fuzz: thick, buzzy sustain from over-saturating the stage until the
+ * smooth wave turns into a harsh square — a Fuzz Face style pair of
+ * overdriven transistors. A 300 Hz high-pass sheds the bass (the classic
+ * fuzz quirk), an enormous gain (1..100) slams a tanh waveshaper into its
+ * flat regions, and a small bias leans the transfer asymmetrically (the
+ * offset is subtracted again so the output stays DC-free).
+ */
+class FuzzPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        hp_state_ = 0.0f;
+        setParams(fuzz_, volume_);
+    }
+
+    void setParams(float fuzz, float volume) {
+        fuzz_ = std::clamp(fuzz, 0.0f, 1.0f);
+        volume_ = std::clamp(volume, 0.0f, 1.0f);
+        hp_coef_ = 1.0f - std::exp(-6.2831853f * 300.0f / fs_);
+        gain_ = 1.0f + fuzz_ * 99.0f;
+        out_ = 0.2f + 0.8f * volume_;
+    }
+
+    float process(float in) override {
+        hp_state_ += hp_coef_ * (in - hp_state_);
+        const float hp = in - hp_state_;
+        const float bias = 0.15f * fuzz_;
+        const float shaped = std::tanh(gain_ * hp + bias) - bias;
+        return shaped * out_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float fuzz_ = 0.0f;
+    float volume_ = 0.5f;
+    float hp_coef_ = 0.04f;
+    float hp_state_ = 0.0f;
+    float gain_ = 1.0f;
+    float out_ = 0.6f;
+};
+
+/*
  * Distortion: heavy rock crunch from aggressively clipping the wave into a
  * sharper, flatter shape — diode-style. Very high gain (1..40) into a tanh
  * waveshaper, then a hard clamp at +/-0.85 gives the flat-top shape a diode
@@ -148,11 +190,19 @@ public:
     void prepare(float sample_rate) {
         fs_ = sample_rate;
         boost_.prepare(fs_);
+        fuzz_.prepare(fs_);
+        distortion_.prepare(fs_);
+        overdrive_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
         boost_.enabled = enabled;
         boost_.setParams(gain_db);
+    }
+
+    void setFuzz(bool enabled, float fuzz, float volume) {
+        fuzz_.enabled = enabled;
+        fuzz_.setParams(fuzz, volume);
     }
 
     void setOverdrive(bool enabled, float drive, float tone) {
@@ -169,6 +219,9 @@ public:
         if (boost_.enabled) {
             in = boost_.process(in);
         }
+        if (fuzz_.enabled) {
+            in = fuzz_.process(in);
+        }
         if (overdrive_.enabled) {
             in = overdrive_.process(in);
         }
@@ -181,6 +234,7 @@ public:
 private:
     float fs_ = 44100.0f;
     BoostPedal boost_;
+    FuzzPedal fuzz_;
     OverdrivePedal overdrive_;
     DistortionPedal distortion_;
 };

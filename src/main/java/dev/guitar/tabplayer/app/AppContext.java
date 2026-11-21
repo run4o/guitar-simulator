@@ -40,6 +40,9 @@ public final class AppContext {
   private final DoubleProperty odDrive = new SimpleDoubleProperty(0.5);
   private final DoubleProperty odTone = new SimpleDoubleProperty(0.5);
   private final BooleanProperty odEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty fuzzAmount = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty fuzzVolume = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty fuzzEnabled = new SimpleBooleanProperty(false);
   private final DoubleProperty distDrive = new SimpleDoubleProperty(0.5);
   private final DoubleProperty distTone = new SimpleDoubleProperty(0.5);
   private final DoubleProperty distLevel = new SimpleDoubleProperty(0.5);
@@ -56,7 +59,8 @@ public final class AppContext {
       p.addListener((o, ov, nv) -> applyFx());
     }
     for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
-        distDrive, distTone, distLevel, distEnabled}) {
+        distDrive, distTone, distLevel, distEnabled,
+        fuzzAmount, fuzzVolume, fuzzEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -151,6 +155,18 @@ public final class AppContext {
     return odEnabled;
   }
 
+  public DoubleProperty fuzzAmountProperty() {
+    return fuzzAmount;
+  }
+
+  public DoubleProperty fuzzVolumeProperty() {
+    return fuzzVolume;
+  }
+
+  public BooleanProperty fuzzEnabledProperty() {
+    return fuzzEnabled;
+  }
+
   public DoubleProperty distDriveProperty() {
     return distDrive;
   }
@@ -195,6 +211,9 @@ public final class AppContext {
     state.put("dist.drive", Double.toString(distDrive.get()));
     state.put("dist.tone", Double.toString(distTone.get()));
     state.put("dist.level", Double.toString(distLevel.get()));
+    state.put("fuzz.enabled", Boolean.toString(fuzzEnabled.get()));
+    state.put("fuzz.fuzz", Double.toString(fuzzAmount.get()));
+    state.put("fuzz.volume", Double.toString(fuzzVolume.get()));
     return state;
   }
 
@@ -209,6 +228,9 @@ public final class AppContext {
     distDrive.set(clamp(parse(state.getOrDefault("dist.drive", "0.5")), 0, 1));
     distTone.set(clamp(parse(state.getOrDefault("dist.tone", "0.5")), 0, 1));
     distLevel.set(clamp(parse(state.getOrDefault("dist.level", "0.5")), 0, 1));
+    fuzzEnabled.set(Boolean.parseBoolean(state.getOrDefault("fuzz.enabled", "false")));
+    fuzzAmount.set(clamp(parse(state.getOrDefault("fuzz.fuzz", "0.5")), 0, 1));
+    fuzzVolume.set(clamp(parse(state.getOrDefault("fuzz.volume", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -237,6 +259,7 @@ public final class AppContext {
     }
     engine.setBoost(boostEnabled.get(), (float) boostGain.get());
     engine.setOverdrive(odEnabled.get(), (float) odDrive.get(), (float) odTone.get());
+    engine.setFuzz(fuzzEnabled.get(), (float) fuzzAmount.get(), (float) fuzzVolume.get());
     engine.setDistortion(distEnabled.get(), (float) distDrive.get(),
         (float) distTone.get(), (float) distLevel.get());
   }

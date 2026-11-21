@@ -154,4 +154,56 @@ class Phase6PedalTest {
         // level 0.3/0.9 = 0.5 vs 0.925 output scales: ~0.54 ratio
         assertTrue(ratio > 0.35f && ratio < 0.75f, "level knob must scale the output, ratio=" + ratio);
     }
+
+    /* ---- fuzz --------------------------------------------------------- */
+
+    /** Same fixture with fuzz params (amp section neutral). */
+    private WavAnalysis.Wav renderFuzz(boolean enabled, float fuzz, float volume) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f));
+        Path wav = tempDir.resolve("fuzz-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setFuzz(enabled, fuzz, volume);
+            assertTrue(engine.renderSequenceToWav(wav, 2.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void fuzzSquaresTheWave() throws Exception {
+        // high string, fret 7 (~494 Hz): above the fuzz input high-pass, so
+        // the waveshaper actually saturates
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path cleanWav = tempDir.resolve("fuzz-clean-" + System.nanoTime() + ".wav");
+        Path fuzzWav = tempDir.resolve("fuzz-fz-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setFuzz(false, 0.9f, 0.5f);
+            assertTrue(engine.renderSequenceToWav(cleanWav, 2.2f, commands));
+            engine.setFuzz(true, 0.9f, 0.5f);
+            assertTrue(engine.renderSequenceToWav(fuzzWav, 2.2f, commands));
+        }
+        WavAnalysis.Wav clean = WavAnalysis.read(cleanWav);
+        WavAnalysis.Wav fuzzed = WavAnalysis.read(fuzzWav);
+        // measure right after the pluck: the string decays fast, so this is
+        // where the shaper actually saturates
+        float cleanCrest = WavAnalysis.peak(clean, 0.01, 0.10) / WavAnalysis.rms(clean, 0.01, 0.10);
+        float fuzzCrest = WavAnalysis.peak(fuzzed, 0.01, 0.10) / WavAnalysis.rms(fuzzed, 0.01, 0.10);
+        // an over-saturated wave is nearly square: crest factor approaches 1
+        assertTrue(fuzzCrest < 1.4f,
+                "fuzz must crush the wave toward a square: crest " + fuzzCrest);
+        assertTrue(fuzzCrest < cleanCrest * 0.6f,
+                "fuzz must be far flatter than the clean wave: " + cleanCrest + " -> " + fuzzCrest);
+        // buzz = sustain: energy stays long after the clean note dies
+        float fuzzedLate = WavAnalysis.rms(fuzzed, 0.2, 0.28);
+        float cleanLate = WavAnalysis.rms(clean, 0.2, 0.28);
+        assertTrue(fuzzedLate > 3.0f * cleanLate,
+                "fuzz must sustain: clean=" + cleanLate + " fuzz=" + fuzzedLate);
+    }
 }
