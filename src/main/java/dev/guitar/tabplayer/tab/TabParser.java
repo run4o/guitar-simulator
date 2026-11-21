@@ -89,7 +89,9 @@ public final class TabParser {
     REPEAT_END,
     DEAD,
     BAR,
-    HARMONIC
+    HARMONIC,
+    TREMOLO,
+    GRACE
   }
 
   private record Token(int column, Kind kind, int fret) {}
@@ -545,12 +547,18 @@ public final class TabParser {
         // ghost note: next note plucks at reduced strength
         track.tokens.add(new Token(i, Kind.GHOST, -1));
         i++;
+      } else if (c == 'G') {
+        // grace note: the next note is a soft ornament (distinct from a
+        // lowercase 'g' ghost, which is a full note played quietly)
+        track.tokens.add(new Token(i, Kind.GRACE, -1));
+        i++;
       } else if (c == '*') {
         // accent: next note plucks at full strength
         track.tokens.add(new Token(i, Kind.ACCENT, -1));
         i++;
       } else if (c == 'T') {
         // tremolo picking: the next run of same digits re-plucks per digit
+        track.tokens.add(new Token(i, Kind.TREMOLO, -1));
         tremoloPending = true;
         i++;
       } else if (c == '~') {
@@ -1079,7 +1087,7 @@ public final class TabParser {
           int type = cmd.type();
           if (type == RenderCommandType.PLUCK || type == RenderCommandType.LEGATO) {
             cmd = new RenderCommand(cmd.timeOffset() + (float) (CHORD_STAGGER_SECONDS * cmd.stringIndex()), cmd.type(),
-                cmd.stringIndex(), cmd.fret(), cmd.a(), cmd.b());
+                cmd.stringIndex(), cmd.fret(), cmd.a(), cmd.b(), cmd.tag());
             adjusted.add(new TabEvent(cmd, event.charPos()));
           } else {
             adjusted.add(event);
@@ -1098,8 +1106,14 @@ public final class TabParser {
     double pendingVelocity = 0.0; // 0 = default pluck strength
     boolean pendingSlide = false; // the articulation was a slide: glide to the target
     boolean pendingHarmonic = false; // the note is wrapped in harmonic markers
+    boolean pendingGrace = false; // the note is a grace ornament
+    boolean pendingTremolo = false; // the note re-plucks (tremolo run)
+    int tremoloDigit = -1;
+    int tremoloLastCol = Integer.MIN_VALUE;
     boolean seenNote = false;
     int currentFret = -1;
+    Set<Integer> trillCols = new HashSet<>();
+    findTrills(track.tokens, trillCols);
 
     for (Token token : track.tokens) {
       double time = start + token.column() * tick;
@@ -1110,21 +1124,60 @@ public final class TabParser {
           boolean palm = track.inPalmMute(token.column());
           int type = legato ? RenderCommandType.LEGATO
               : pendingHarmonic ? RenderCommandType.HARMONIC : RenderCommandType.PLUCK;
-          // slides glide audibly (~0.15 s); h/p/t jump fast
+          // view-only articulation tag (h/p/t/slide/trill/tremolo/grace)
+          int tag = RenderCommand.TAG_NONE;
+          if (legato) {
+            tag = switch (pendingArticulation) {
+              case HAMMER -> RenderCommand.TAG_HAMMER;
+              case PULL -> RenderCommand.TAG_PULL;
+              case TAP -> RenderCommand.TAG_TAP;
+              default -> RenderCommand.TAG_SLIDE; // SLIDE
+            };
+          }
+          if (pendingTremolo) {
+            if (tremoloDigit < 0) {
+              tremoloDigit = token.fret();
+            }
+            if (token.fret() == tremoloDigit
+                && (tremoloLastCol == Integer.MIN_VALUE || token.column() == tremoloLastCol + 1)) {
+              tag = RenderCommand.TAG_TREMOLO;
+              tremoloLastCol = token.column();
+            } else {
+              pendingTremolo = false;
+            }
+          }
+          if (trillCols.contains(token.column())) {
+            tag = RenderCommand.TAG_TRILL;
+          }
+          if (pendingGrace) {
+            tag = RenderCommand.TAG_GRACE;
+          }
+          // slides glide audibly (~0.15 s); h/p/t jump fast; grace notes
+          // pluck quietly
           float strength = (float) (pendingVelocity != 0.0 ? pendingVelocity
-              : legato ? (pendingSlide ? 0.15 : 0.0) : 0.9);
+              : legato ? (pendingSlide ? 0.15 : 0.0) : pendingGrace ? 0.45 : 0.9);
           add(byColumn, token.column(), new TabEvent(
               new RenderCommand((float) time, type, track.stringIndex, token.fret(), strength,
-                  palm ? 1.0f : 0.0f), charPos));
+                  palm ? 1.0f : 0.0f, tag), charPos));
           currentFret = token.fret();
           seenNote = true;
           pendingArticulation = null;
           pendingSlide = false;
           pendingVelocity = 0.0;
           pendingHarmonic = false;
+          pendingGrace = false;
         }
         case GHOST -> pendingVelocity = 0.45;
+        case GRACE -> {
+          pendingGrace = true;
+          pendingVelocity = 0.45;
+        }
         case ACCENT -> pendingVelocity = 1.0;
+        case TREMOLO -> {
+          pendingTremolo = true;
+          tremoloDigit = -1;
+          tremoloLastCol = Integer.MIN_VALUE;
+        }
         case BEND -> {
           if (token.fret() >= 0 && currentFret >= 0) {
             add(byColumn, token.column(), new TabEvent(
@@ -1156,6 +1209,54 @@ public final class TabParser {
         case HARMONIC -> pendingHarmonic = true;
         case BAR -> { }
       }
+    }
+  }
+
+  /**
+   * Marks trill runs: h/p alternating between the same two frets
+   * (e.g. 5h7p5h7p5). The tagged notes render with a 'tr' label instead of
+   * per-note h/p letters.
+   */
+  private static void findTrills(List<Token> tokens, Set<Integer> out) {
+    for (int i = 0; i + 4 < tokens.size(); i++) {
+      if (tokens.get(i).kind() != Kind.NOTE) {
+        continue;
+      }
+      Kind k1 = tokens.get(i + 1).kind();
+      if (k1 != Kind.HAMMER && k1 != Kind.PULL) {
+        continue;
+      }
+      if (tokens.get(i + 2).kind() != Kind.NOTE) {
+        continue;
+      }
+      Kind k2 = tokens.get(i + 3).kind();
+      if (k2 != (k1 == Kind.HAMMER ? Kind.PULL : Kind.HAMMER)) {
+        continue;
+      }
+      if (tokens.get(i + 4).kind() != Kind.NOTE || tokens.get(i + 4).fret() != tokens.get(i).fret()) {
+        continue;
+      }
+      int a = tokens.get(i).fret();
+      int b = tokens.get(i + 2).fret();
+      List<Integer> run = new ArrayList<>();
+      run.add(tokens.get(i + 2).column());
+      run.add(tokens.get(i + 4).column());
+      int j = i + 5;
+      Kind expect = k1;
+      int expectFret = b;
+      while (j + 1 < tokens.size() && tokens.get(j).kind() == expect
+          && tokens.get(j + 1).kind() == Kind.NOTE && tokens.get(j + 1).fret() == expectFret) {
+        run.add(tokens.get(j + 1).column());
+        expect = expect == Kind.HAMMER ? Kind.PULL : Kind.HAMMER;
+        expectFret = expectFret == a ? b : a;
+        j += 2;
+      }
+      // a single h->p return is an ordinary hammer/pull phrase; a trill
+      // keeps alternating
+      if (run.size() >= 3) {
+        out.addAll(run);
+      }
+      i = j - 1;
     }
   }
 

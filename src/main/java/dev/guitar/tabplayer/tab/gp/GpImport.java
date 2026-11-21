@@ -143,6 +143,7 @@ public final class GpImport {
     int trillFret = -1;   // trill alternation fret (-1 = none)
     double trillStep;     // trill note length in quarters
     boolean tremolo;      // tremolo picking: the run re-plucks per digit
+    boolean grace;        // grace ornament (renders as a 'G' pre-marker)
     int graceFret = -1;   // grace note before the main note (-1 = none)
     double graceStep;     // grace note length in quarters
     int col;              // placed column (set by the generator)
@@ -1091,6 +1092,7 @@ public final class GpImport {
                 NoteEvent g = new NoteEvent(note.stringIndex, note.graceFret, false);
                 g.col = graceCol;
                 g.velocity = 0.45;
+                g.grace = true;
                 line.add(g);
               } else if (!warnedGraceSkip) {
                 warnedGraceSkip = true;
@@ -1114,9 +1116,10 @@ public final class GpImport {
           boolean dead = note.dead;
           String glyph = dead ? "x" : Integer.toString(note.fret);
           int start = prevEnd >= 0 ? Math.max(note.col, prevEnd + 1) : Math.max(note.col, 0);
-          // pre-note markers: velocity (g/*), harmonic (<), tremolo (T) or
-          // tap (t), 1 char + one separating column; higher wins
-          char pre = note.velocity != 0.0 ? (note.velocity < 0.9 ? 'g' : '*')
+          // pre-note markers: velocity (g/*), grace (G), harmonic (<),
+          // tremolo (T) or tap (t), 1 char + one separating column; higher wins
+          char pre = note.grace ? 'G'
+              : note.velocity != 0.0 ? (note.velocity < 0.9 ? 'g' : '*')
               : note.harmonic ? '<' : note.tremolo ? 'T' : note.tap ? 't' : 0;
           if (pre != 0 && start - (prevEnd + 1) >= 2 && start >= 2) {
             cells[s][start - 2] = pre;

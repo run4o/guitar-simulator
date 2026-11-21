@@ -275,7 +275,7 @@ class GpImportTest {
     // bar 8: tremolo picking marker before the fret-5 run
     assertTrue(ascii.contains("T 55555555"), "tremolo run missing:\n" + ascii);
     // bar 9: grace note fret 2 two columns before the fret-5 main note
-    assertTrue(ascii.contains("g 2 5"), "grace note missing:\n" + ascii);
+    assertTrue(ascii.contains("G 2 5"), "grace note missing:\n" + ascii);
     // bar 10: vibrato marker at the end of the fret-3 sustain
     assertTrue(ascii.contains("3~ 5") || ascii.contains("3~5"),
         "vibrato marker missing:\n" + ascii);

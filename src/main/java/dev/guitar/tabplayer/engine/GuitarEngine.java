@@ -266,8 +266,9 @@ public final class GuitarEngine implements AutoCloseable {
   /**
    * One timed synthesis command for the offline renderer. Field layout is a
    * mirror of the native GteRenderCommand struct: 6 x 4 bytes, no padding.
+   * The 7th field (tag) is view-only metadata and never serialized.
    */
-  public record RenderCommand(float timeOffset, int type, int stringIndex, int fret, float a, float b) {
+  public record RenderCommand(float timeOffset, int type, int stringIndex, int fret, float a, float b, int tag) {
     public static final int BYTE_SIZE = 24;
     static final long OFFSET_TIME = 0;
     static final long OFFSET_TYPE = 4;
@@ -275,6 +276,20 @@ public final class GuitarEngine implements AutoCloseable {
     static final long OFFSET_FRET = 12;
     static final long OFFSET_A = 16;
     static final long OFFSET_B = 20;
+
+    /** View-only articulation tags (never reach the native engine). */
+    public static final int TAG_NONE = 0;
+    public static final int TAG_HAMMER = 1;
+    public static final int TAG_PULL = 2;
+    public static final int TAG_TAP = 3;
+    public static final int TAG_SLIDE = 4;
+    public static final int TAG_TRILL = 5;
+    public static final int TAG_TREMOLO = 6;
+    public static final int TAG_GRACE = 7;
+
+    public RenderCommand(float timeOffset, int type, int stringIndex, int fret, float a, float b) {
+      this(timeOffset, type, stringIndex, fret, a, b, TAG_NONE);
+    }
   }
 
   /**

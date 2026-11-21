@@ -479,4 +479,28 @@ class Phase3ParserTest {
         assertArrayEquals(new int[]{3, 4}, sigs.get(4));
         assertArrayEquals(new int[]{4, 4}, sigs.get(5));
     }
+
+    /* ---- articulation tags ------------------------------------------ */
+
+    @Test
+    void articulationTagsReachTheTimeline() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--5-h-7-p-5--T4444--G-2-5-|\n");
+        var cmds = timeline.commands();
+        assertTrue(cmds.stream().anyMatch(c -> c.type() == GuitarEngine.EVENT_LEGATO
+                && c.fret() == 7 && c.tag() == RenderCommand.TAG_HAMMER));
+        assertTrue(cmds.stream().anyMatch(c -> c.type() == GuitarEngine.EVENT_LEGATO
+                && c.fret() == 5 && c.tag() == RenderCommand.TAG_PULL));
+        // the tremolo run re-plucks four times, all tagged
+        assertEquals(4, cmds.stream().filter(c -> c.tag() == RenderCommand.TAG_TREMOLO).count());
+        assertTrue(cmds.stream().anyMatch(c -> c.fret() == 2 && c.tag() == RenderCommand.TAG_GRACE));
+    }
+
+    @Test
+    void trillAlternationGetsTrillTags() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--5h7p5h7p5-|\n");
+        // 7,5,7,5 are tagged; the base note stays an ordinary hammer origin
+        long trills = timeline.commands().stream()
+                .filter(c -> c.tag() == RenderCommand.TAG_TRILL).count();
+        assertEquals(4, trills);
+    }
 }

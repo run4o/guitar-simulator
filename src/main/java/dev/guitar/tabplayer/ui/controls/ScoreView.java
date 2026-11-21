@@ -249,7 +249,8 @@ public class ScoreView extends Canvas {
       switch (cmd.type()) {
         case RenderCommandType.PLUCK -> {
           boolean palm = cmd.b() >= 0.5f;
-          boolean ghost = Math.abs(cmd.a() - 0.45f) < 0.02f;
+          boolean grace = cmd.tag() == RenderCommand.TAG_GRACE;
+          boolean ghost = grace || Math.abs(cmd.a() - 0.45f) < 0.02f;
           boolean accent = !ghost && cmd.a() >= 0.95f;
           drawSustainCell(g, x, laneCenter, cellW, cellH, onsetW, String.valueOf(cmd.fret()),
               palm || ghost, palm);
@@ -259,9 +260,21 @@ public class ScoreView extends Canvas {
           if (accent) {
             drawTag(g, ">", x + onsetW - 7, laneCenter - cellH / 2 - 7, SILVER);
           }
+          if (grace) {
+            drawTag(g, "g", x + onsetW - 4, laneCenter - cellH / 2 - 7, Color.web("#9FE8F2"));
+          }
+          if (cmd.tag() == RenderCommand.TAG_TREMOLO) {
+            // two tremolo beams above the re-plucked note
+            g.setStroke(Color.web("#9FE8F2"));
+            g.setLineWidth(1.2);
+            double top = laneCenter - cellH / 2;
+            g.strokeLine(x + 1, top - 2, x + 9, top - 8);
+            g.strokeLine(x + 7, top - 2, x + 15, top - 8);
+          }
         }
         case RenderCommandType.LEGATO -> {
-          boolean slide = Math.abs(cmd.a() - 0.15f) < 0.01f;
+          boolean slide = cmd.tag() == RenderCommand.TAG_SLIDE
+              || (cmd.tag() == RenderCommand.TAG_NONE && Math.abs(cmd.a() - 0.15f) < 0.01f);
           // legato keeps its outline (vs the plucked solid block) with a
           // hairline tail for the hold
           g.setStroke(CYAN);
@@ -285,6 +298,16 @@ public class ScoreView extends Canvas {
             g.setLineWidth(1.2);
             strokeCurve(g, px + 2, laneCenter - cellH / 2 - 2, midX, laneCenter - cellH / 2 - 9,
                 x - 2, laneCenter - cellH / 2 - 2);
+          }
+          String art = switch (cmd.tag()) {
+            case RenderCommand.TAG_TRILL -> "tr";
+            case RenderCommand.TAG_HAMMER -> "h";
+            case RenderCommand.TAG_PULL -> "p";
+            case RenderCommand.TAG_TAP -> "T";
+            default -> null;
+          };
+          if (art != null) {
+            drawTag(g, art, x + onsetW + 2, laneCenter - cellH / 2 - 7, Color.web("#9FE8F2"));
           }
           if (slide && prev >= 0) {
             double px = xForTime(prev);
