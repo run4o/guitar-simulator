@@ -313,6 +313,9 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[57]) {
     const float octOn = g_pedals.oct_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     const float octMode = g_pedals.oct_mode.load(std::memory_order_relaxed);
     const float octMix = g_pedals.oct_mix.load(std::memory_order_relaxed);
+    const float loopOn = g_pedals.loop_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float loopLen = g_pedals.loop_length.load(std::memory_order_relaxed);
+    const float loopLvl = g_pedals.loop_level.load(std::memory_order_relaxed);
     if (boostOn != cached[0] || boostGain != cached[1] || fuzzOn != cached[2]
         || fuzzAmt != cached[3] || fuzzVol != cached[4] || odOn != cached[5]
         || odDrive != cached[6] || odTone != cached[7] || distOn != cached[8]
@@ -334,7 +337,8 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[57]) {
         || wahOn != cached[44] || wahRate != cached[45] || wahCenter != cached[46]
         || wahRes != cached[47]
         || gateOn != cached[48] || gateThr != cached[49] || gateRel != cached[50]
-        || octOn != cached[51] || octMode != cached[52] || octMix != cached[53]) {
+        || octOn != cached[51] || octMode != cached[52] || octMix != cached[53]
+        || loopOn != cached[54] || loopLen != cached[55] || loopLvl != cached[56]) {
         chain.setBoost(boostOn > 0.5f, boostGain);
         chain.setFuzz(fuzzOn > 0.5f, fuzzAmt, fuzzVol);
         chain.setOverdrive(odOn > 0.5f, odDrive, odTone);
@@ -350,6 +354,7 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[57]) {
         chain.setWah(wahOn > 0.5f, wahRate, wahCenter, wahRes);
         chain.setGate(gateOn > 0.5f, gateThr, gateRel);
         chain.setOctave(octOn > 0.5f, octMode, octMix);
+        chain.setLooper(loopOn > 0.5f, loopLen, loopLvl);
         cached[0] = boostOn;
         cached[1] = boostGain;
         cached[2] = fuzzOn;
