@@ -34,7 +34,7 @@ constexpr int kStringCount = 6;
 constexpr int kMaxFret = 24;
 
 bool valid_string(int i) { return i >= 0 && i < kStringCount; }
-bool valid_command_type(int t) { return t >= GTE_EVENT_PLUCK && t <= GTE_EVENT_VIBRATO; }
+bool valid_command_type(int t) { return t >= GTE_EVENT_PLUCK && t <= GTE_EVENT_HARMONIC; }
 bool valid_model(int m) { return m >= 0 && m <= 2; }
 
 struct EngineEvent {
@@ -165,6 +165,7 @@ void apply_command(gte::PluckedString* strings, float open_frequencies[], int ty
         case GTE_EVENT_BEND:       v.bend(a); break;
         case GTE_EVENT_MUTE:       v.set_vibrato(false); v.mute(); break;
         case GTE_EVENT_VIBRATO:    v.set_vibrato(a != 0.0f); break;
+        case GTE_EVENT_HARMONIC:   v.set_vibrato(false); v.pluck_harmonic(fret, a, b != 0.0f); break;
         case GTE_EVENT_SET_TUNING:
             open_frequencies[string_index] = a;
             v.set_open_frequency(a);

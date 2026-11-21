@@ -272,17 +272,27 @@ class Phase3ParserTest {
     }
 
     @Test
+    void harmonicMarkersProduceHarmonicPluck() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--(12)--5--|\n");
+        List<RenderCommand> harmonics = ofType(timeline, GuitarEngine.EVENT_HARMONIC);
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertEquals(1, harmonics.size());
+        assertEquals(12, harmonics.get(0).fret());
+        assertEquals(1, plucks.size());
+        assertEquals(5, plucks.get(0).fret());
+    }
+
+    @Test
     void vibratoEmitsVibratoCommand() {
         TabParser.TabTimeline timeline = TabParser.compile("e|--3~~5--(7)--|\n");
         List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
-        // 3, 5, and 7 all plucked; harmonics tolerated with a warning
-        assertEquals(3, plucks.size());
+        // 3 and 5 plucked, 7 is a harmonic; harmonics tolerated with a warning
+        assertEquals(2, plucks.size());
         // the ~ applies to the ringing fret-3 note: vibrato commands, no warning
         List<RenderCommand> vibratos = ofType(timeline, GuitarEngine.EVENT_VIBRATO);
         assertEquals(2, vibratos.size());
         assertEquals(5, vibratos.get(0).stringIndex());
         assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("Vibrato")));
-        assertTrue(timeline.warnings().stream().anyMatch(w -> w.contains("Harmonics")));
     }
 
     /* ---- end-to-end: parse -> render -> pitch -------------------------- */

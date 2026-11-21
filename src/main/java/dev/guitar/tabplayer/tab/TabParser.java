@@ -595,6 +595,7 @@ public final class TabParser {
     Kind pendingArticulation = null;
     double pendingVelocity = 0.0; // 0 = default pluck strength
     boolean pendingSlide = false; // the articulation was a slide: glide to the target
+    boolean pendingHarmonic = false; // the note is wrapped in harmonic markers
     boolean seenNote = false;
     int currentFret = -1;
 
@@ -605,7 +606,8 @@ public final class TabParser {
         case NOTE -> {
           boolean legato = pendingArticulation != null && seenNote;
           boolean palm = track.inPalmMute(token.column());
-          int type = legato ? RenderCommandType.LEGATO : RenderCommandType.PLUCK;
+          int type = legato ? RenderCommandType.LEGATO
+              : pendingHarmonic ? RenderCommandType.HARMONIC : RenderCommandType.PLUCK;
           // slides glide audibly (~0.15 s); h/p/t jump fast
           float strength = (float) (pendingVelocity != 0.0 ? pendingVelocity
               : legato ? (pendingSlide ? 0.15 : 0.0) : 0.9);
@@ -617,6 +619,7 @@ public final class TabParser {
           pendingArticulation = null;
           pendingSlide = false;
           pendingVelocity = 0.0;
+          pendingHarmonic = false;
         }
         case GHOST -> pendingVelocity = 0.45;
         case ACCENT -> pendingVelocity = 1.0;
@@ -648,11 +651,8 @@ public final class TabParser {
         case VIBRATO -> add(byColumn, token.column(), new TabEvent(
             new RenderCommand((float) time, RenderCommandType.VIBRATO, track.stringIndex, 0,
                 1.0f, 0.0f), charPos));
-        case HARMONIC, BAR -> {
-          if (token.kind() == Kind.HARMONIC) {
-            warnings.add("Harmonics are rendered as normal notes for now");
-          }
-        }
+        case HARMONIC -> pendingHarmonic = true;
+        case BAR -> { }
       }
     }
   }
@@ -670,5 +670,6 @@ public final class TabParser {
     static final int BEND = 2;
     static final int MUTE = 3;
     static final int VIBRATO = 6;
+    static final int HARMONIC = 7;
   }
 }

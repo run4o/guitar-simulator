@@ -261,6 +261,7 @@ public final class GuitarEngine implements AutoCloseable {
   public static final int EVENT_SET_TUNING = 4;
   public static final int EVENT_SET_MODEL = 5;
   public static final int EVENT_VIBRATO = 6;
+  public static final int EVENT_HARMONIC = 7;
 
   /**
    * One timed synthesis command for the offline renderer. Field layout is a

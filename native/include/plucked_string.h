@@ -74,6 +74,20 @@ public:
         set_envelope(model_t60_, model_cutoff_);
     }
 
+    /* Natural/artificial harmonic: the node at `node_fret` sounds the
+     * partial 1/(1-2^(-f/12)) of the open string (fret 12 -> octave, 7 ->
+     * fifth+octave, 5 -> two octaves). The delay line is initialized with a
+     * pure sine of that partial, giving the flute-like harmonic timbre. */
+    void pluck_harmonic(int node_fret, float velocity, bool palm_mute) {
+        float partial = 1.0f / (1.0f - std::pow(2.0f, -node_fret / 12.0f));
+        nominal_delay_ = clamp_delay(fs_ / (open_frequency_ * partial));
+        delay_ = nominal_delay_;
+        target_delay_ = nominal_delay_;
+        slew_per_sample_ = 0.0f;
+        set_envelope(palm_mute ? kPalmMuteT60 : kHarmonicT60, model_cutoff_);
+        excite_harmonic(velocity);
+    }
+
     void mute() {
         set_envelope(kMuteT60, model_cutoff_);
         slew_to(delay_, 0.0f); // stop any glide in progress
@@ -202,6 +216,7 @@ private:
     static constexpr float kVibratoRateHz = 5.5f;
     static constexpr float kVibratoSemitones = 0.4f;
     static constexpr float kVibratoRampSeconds = 0.12f;
+    static constexpr float kHarmonicT60 = 1.2f;
 
     static int wrap(int i) { return i & (kBufferSamples - 1); }
 
@@ -235,8 +250,20 @@ private:
         return static_cast<float>(static_cast<int32_t>(rng_)) / 2147483648.0f;
     }
 
-    void excite(float velocity) {
+    /* Harmonic excitation: one clean sine cycle across the new delay line —
+     * the loop then sustains exactly the partial's pitch. */
+    void excite_harmonic(float velocity) {
         std::fill(buf_.begin(), buf_.end(), 0.0f); // choke any ringing energy
+        int n = std::min(static_cast<int>(delay_), kBufferSamples - 8);
+        for (int k = 0; k < n; ++k) {
+            buf_[wrap(write_idx_ - n + k)] =
+                velocity * 0.8f * std::sin(6.2831853f * static_cast<float>(k) / static_cast<float>(n));
+        }
+        ap_state_ = buf_[wrap(write_idx_ - 1)];
+        lp_state_ = ap_state_;
+    }
+
+    void excite(float velocity) {        std::fill(buf_.begin(), buf_.end(), 0.0f); // choke any ringing energy
         int count = std::min(static_cast<int>(std::ceil(delay_)) + 4, kBufferSamples - 8);
         float amp = velocity;
         float last = 0.0f;

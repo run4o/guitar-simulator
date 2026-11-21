@@ -138,6 +138,7 @@ public final class GpImport {
     boolean palmMute;
     boolean tap;
     boolean vibrato;
+    boolean harmonic;
     double velocity;      // 0 = default pluck strength; else ghost/accent/dynamic
     int trillFret = -1;   // trill alternation fret (-1 = none)
     double trillStep;     // trill note length in quarters
@@ -754,7 +755,7 @@ public final class GpImport {
         }
       }
       if (flags2 != 0 && (flags2 & 0x10) != 0) {
-        readArtificialHarmonic();
+        readArtificialHarmonic(note);
       }
       if (flags2 != 0 && (flags2 & 0x20) != 0) {
         int trillFret = r.u1();
@@ -812,7 +813,7 @@ public final class GpImport {
       };
     }
 
-    private void readArtificialHarmonic() {
+    private void readArtificialHarmonic(NoteEvent note) {
       int type = r.u1();
       if (version >= 500) {
         if (type == 2) {
@@ -821,7 +822,7 @@ public final class GpImport {
           r.u1(); // fret
         }
       }
-      warn("harmonics are rendered as normal notes for now");
+      note.harmonic = true;
     }
 
     /* -- ASCII generation -------------------------------------------- */
@@ -1027,10 +1028,10 @@ public final class GpImport {
           boolean dead = note.dead;
           String glyph = dead ? "x" : Integer.toString(note.fret);
           int start = prevEnd >= 0 ? Math.max(note.col, prevEnd + 1) : Math.max(note.col, 0);
-          // pre-note markers: velocity (g/*), tremolo (T) or tap (t), 1 char
-          // + one separating column; velocity wins when several are present
+          // pre-note markers: velocity (g/*), harmonic (<), tremolo (T) or
+          // tap (t), 1 char + one separating column; higher wins
           char pre = note.velocity != 0.0 ? (note.velocity < 0.9 ? 'g' : '*')
-              : note.tremolo ? 'T' : note.tap ? 't' : 0;
+              : note.harmonic ? '<' : note.tremolo ? 'T' : note.tap ? 't' : 0;
           if (pre != 0 && start - (prevEnd + 1) >= 2 && start >= 2) {
             cells[s][start - 2] = pre;
           }
@@ -1067,19 +1068,24 @@ public final class GpImport {
             }
           } else if (!dead && glyph.length() == 1 && !note.palmMute) {
             // sustain fill: repeat the digit across the note's duration,
-            // reserving room for the next note's velocity/tremolo/tap/PM markers
+            // reserving room for the next note's markers (last cell of the
+            // meter is reserved for the harmonic's closing '>')
             int reserve = next != null
-                && (next.tap || next.palmMute || next.velocity != 0.0 || next.tremolo) ? 4 : 2;
-            int fillEnd = next != null ? Math.min(next.col - reserve, cols - 1) : cols - 1;
+                && (next.tap || next.palmMute || next.velocity != 0.0 || next.tremolo
+                    || next.harmonic) ? 4 : 2;
+            int fillEnd = next != null ? Math.min(next.col - reserve, cols - 1)
+                : note.harmonic ? cols - 2 : cols - 1;
             for (int c = start + 1; c <= fillEnd; c++) {
               cells[s][c] = glyph.charAt(0);
             }
             last = Math.max(last, fillEnd);
           }
 
-          // vibrato marker right after the note's ring (fill or glyph): it
-          // applies to the sounding note until the string's next articulation
-          if (note.vibrato && !dead && last + 1 < cells[s].length) {
+          // post-note markers: the harmonic's closing '>', then vibrato
+          if (!dead && note.harmonic && last + 1 < cells[s].length) {
+            cells[s][last + 1] = '>';
+            last = last + 1;
+          } else if (note.vibrato && !dead && last + 1 < cells[s].length) {
             cells[s][last + 1] = '~';
             last = last + 1;
           }
