@@ -339,6 +339,173 @@ class GpImportTest {
     assertTrue(ascii.contains("7 0 0 0 5"), "chugs must stay separated:\n" + ascii);
   }
 
+  @Test
+  void importsRepeatWithAlternateEndings() throws IOException {
+    // 5 bars: plain, |: body, ending 1 (:|), ending 2 (3/4), plain
+    Path file = tempDir.resolve("endings.gp5");
+    Files.write(file, gp5RepeatEndingsFixture());
+
+    GpImport.GpSong song = GpImport.importFile(file);
+    String ascii = song.ascii();
+    assertTrue(ascii.contains("|[1]"), "ending 1 mark missing:\n" + ascii);
+    assertTrue(ascii.contains(":|[2]"), "ending 2 mark missing:\n" + ascii);
+
+    // compiled: plain, body, ending 1, body again, ending 2, plain
+    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+    var plucks = timeline.commands().stream()
+        .filter(c -> c.type() == 0).toList();
+    assertEquals(6, plucks.size(), "play order broken:\n" + ascii + "\n" + timeline.warnings());
+    int[] expectedFrets = {1, 2, 3, 2, 4, 5};
+    for (int i = 0; i < expectedFrets.length; i++) {
+      assertEquals(expectedFrets[i], plucks.get(i).fret(),
+          "pluck " + i + " fret:\n" + ascii + "\n" + timeline.warnings());
+    }
+  }
+
+  @Test
+  void alternateEndingMetersFollowTheirPass() throws IOException {
+    Path file = tempDir.resolve("endings-meter.gp5");
+    Files.write(file, gp5RepeatEndingsFixture());
+
+    GpImport.GpSong song = GpImport.importFile(file);
+    var meters = new java.util.HashMap<Integer, int[]>();
+    for (int i = 0; i < song.meters().size(); i++) {
+      meters.put(i, song.meters().get(i));
+    }
+    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(
+        song.ascii(), song.bpm(), meters);
+    // expanded bars: plain, body, ending1, body again, ending2(3/4), plain
+    var sigs = timeline.timeSignatures();
+    assertEquals(6, sigs.size(), "expanded bar count:\n" + song.ascii());
+    assertEquals(3, sigs.get(4)[0], "ending-2 meter must ride its pass:\n" + song.ascii());
+    assertEquals(4, sigs.get(4)[1]);
+    assertEquals(4, sigs.get(3)[0]);
+  }
+
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Builds a minimal GP5.1 file with 5 bars: bar 0 plain, bar 1 a repeat
+   * start, bar 2 closing ending 1 (with the :|), bar 3 closing ending 2 in
+   * 3/4, bar 4 plain. One quarter note per bar, fret = bar + 1.
+   */
+  private static byte[] gp5RepeatEndingsFixture() throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    DataOutputStream d = new DataOutputStream(out);
+    fixedString(d, "FICHIER GUITAR PRO v5.10", 30);
+    infoString(d, "Test Song");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "Test Artist");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "");
+    infoString(d, "");
+    writeIntLE(d, 0);
+    writeIntLE(d, 1);
+    for (int i = 0; i < 5; i++) {
+      writeIntLE(d, 0);
+      writeIntLE(d, 0);
+    }
+    d.write(new byte[19]);
+    d.write(new byte[28]);
+    writeShortLE(d, 0);
+    for (int i = 0; i < 10; i++) {
+      writeIntLE(d, 1);
+      d.writeByte(0);
+    }
+    writeIntLE(d, 1);
+    d.writeByte(0);
+    writeIntLE(d, 120);
+    d.writeByte(0);
+    writeIntLE(d, 0);
+    d.writeByte(0);
+    for (int i = 0; i < 64; i++) {
+      writeIntLE(d, 0);
+      d.write(new byte[8]);
+    }
+    for (int i = 0; i < 19; i++) {
+      writeShortLE(d, -1);
+    }
+    d.write(new byte[4]);
+    writeIntLE(d, 5); // bars
+    writeIntLE(d, 1); // tracks
+    // master bars: 0 plain 4/4, 1 repeatStart, 2 repeatEnd+ending 1,
+    // 3 ending 2 in 3/4, 4 plain
+    d.writeByte(0x03);
+    d.writeByte(4);
+    d.writeByte(4);
+    d.write(new byte[4]);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0x04); // repeat start
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0x08); // repeat end, count 0 -> 2 plays
+    d.writeByte(0);
+    d.writeByte(0x01); // closes ending 1
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0x03); // 3/4 meter on the ending-2 bar
+    d.writeByte(3);
+    d.writeByte(4);
+    d.write(new byte[4]);
+    d.writeByte(0x02); // closes ending 2
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0x00);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.writeByte(0);
+    // track (same layout as gp5Fixture)
+    d.writeByte(0x00);
+    fixedString(d, "RHYTHM GTR", 40);
+    writeIntLE(d, 6);
+    int[] tunings = {40, 45, 52, 57, 60, 64, 0};
+    for (int t : tunings) {
+      writeIntLE(d, t);
+    }
+    writeIntLE(d, 1);
+    writeIntLE(d, 1);
+    writeIntLE(d, 1);
+    writeIntLE(d, 24);
+    writeIntLE(d, 0);
+    d.write(new byte[4]);
+    d.writeByte(0x01);
+    d.write(new byte[4]);
+    writeIntLE(d, 0);
+    writeIntLE(d, 0);
+    writeIntLE(d, 0);
+    d.write(new byte[10]);
+    d.writeByte(0);
+    d.writeByte(0);
+    d.write(new byte[16]);
+    d.write(new byte[4]);
+    writeIntLE(d, 1);
+    d.writeByte(0);
+    writeIntLE(d, 1);
+    d.writeByte(0);
+    // bar chunks: one quarter note on the high e string, fret = bar + 1
+    for (int bar = 0; bar < 5; bar++) {
+      d.writeByte(0); // voice header
+      writeIntLE(d, 1); // beats
+      d.writeByte(0x00); // beat flags
+      d.writeByte(0); // duration: quarter
+      d.writeByte(0x40); // string flags: high e
+      d.writeByte(0x20); // note flags: type + fret
+      d.writeByte(1); // note type: regular
+      d.writeByte(bar + 1); // fret
+      d.writeByte(0); // note flags2
+      writeShortLE(d, 0); // beat flags2
+      writeIntLE(d, 0); // second voice: 0 beats
+    }
+    d.flush();
+    return out.toByteArray();
+  }
+
   /* ------------------------------------------------------------------ */
 
   /**

@@ -921,6 +921,14 @@ public final class GpImport {
           }
           barsInLine++;
         }
+        // keep the ending bars of a repeat on the same line as its :| so
+        // their [N] marks stay attached to a divider
+        while (barIndex + barsInLine < barCount
+            && masterBars.get(barIndex + barsInLine).altEndingMask != 0
+            && (masterBars.get(barIndex + barsInLine - 1).repeatEnd
+                || masterBars.get(barIndex + barsInLine - 1).altEndingMask != 0)) {
+          barsInLine++;
+        }
         StringBuilder[] lines = new StringBuilder[6];
         String lead = first.repeatStart ? "|:" : "|";
         for (int s = 0; s < 6; s++) {
@@ -942,6 +950,10 @@ public final class GpImport {
           String pipe = mb.repeatEnd
               ? (mb.repeatPlays > 2 ? ":|x" + mb.repeatPlays : ":|")
               : next != null && next.repeatStart ? "|:" : "|";
+          // an alternate-ending mark follows the divider that opens that bar
+          if (next != null && next.altEndingMask != 0) {
+            pipe += "[" + endingMaskText(next.altEndingMask) + "]";
+          }
           for (int s = 0; s < 6; s++) {
             lines[s].append(cells[s]).append(pipe);
           }
@@ -964,6 +976,41 @@ public final class GpImport {
       }
       return new GpSong(out.toString().stripTrailing(), Math.max(40, Math.min(300, bpm)),
           title, selected.name, List.copyOf(warnings), List.copyOf(perBarMeters));
+    }
+
+    /** Formats an alternate-endings bitmask as "1", "1-3" or "1,3" text. */
+    private static String endingMaskText(int mask) {
+      StringBuilder text = new StringBuilder();
+      int run = -1; // start of a consecutive ending run
+      int prev = 0;
+      for (int e = 1; e <= 31; e++) {
+        if ((mask & (1 << (e - 1))) != 0) {
+          if (run < 0) {
+            run = e;
+          } else if (prev != e - 1) {
+            appendEndingRun(text, run, prev);
+            run = e;
+          }
+          prev = e;
+        }
+      }
+      if (run >= 0) {
+        appendEndingRun(text, run, prev);
+      }
+      return text.toString();
+    }
+
+    private static void appendEndingRun(StringBuilder text, int from, int to) {
+      if (text.length() > 0) {
+        text.append(',');
+      }
+      if (from == to) {
+        text.append(from);
+      } else if (to == from + 1) {
+        text.append(from).append(',').append(to);
+      } else {
+        text.append(from).append('-').append(to);
+      }
     }
 
     /**

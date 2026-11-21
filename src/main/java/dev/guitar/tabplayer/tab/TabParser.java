@@ -99,6 +99,8 @@ public final class TabParser {
     final List<Token> tokens = new ArrayList<>();
     final List<Integer> barColumns = new ArrayList<>();
     final List<int[]> palmMuteRanges = new ArrayList<>();
+    // alternate-ending marks as {owning divider column, ending bitmask}
+    final List<int[]> endingMarks = new ArrayList<>();
     int sourceOffset; // absolute char index in the source text where content starts
     int contentLength; // length of this line's content
     char label;        // original label character (e/B/G/D/A/E)
@@ -150,31 +152,56 @@ public final class TabParser {
     Set<String> warnings = new LinkedHashSet<>();
     List<SystemBlock> systems = parseSystems(text, warnings);
 
-    // expand |: ... :|xN sections; alternate endings are not represented in
-    // the ASCII layout, so every pass plays the full section
+    // expand |: ... :|xN sections; alternate endings ([1], [2] marks) choose
+    // which ending bars each pass plays, so a pass no longer replays the
+    // whole section including every ending
     Map<Integer, int[]> expandedSigs = timeSignatures == null ? null : new TreeMap<>(timeSignatures);
     int runningBars = 0;
     for (SystemBlock system : systems) {
       RepeatInfo info = expandRepeats(system, warnings);
+      int barCount = barRanges(system).size();
       if (info != null && expandedSigs != null) {
-        int sectionStart = runningBars + info.sectionStartLocal();
-        int sectionEnd = sectionStart + info.sectionBars() - 1;
+        int added = barCount - info.originalBars();
+        int base = runningBars;
+        // pass-1 bars keep their indices; the structure's other original
+        // bars re-appear at their chosen pass (inserted below); everything
+        // after the structure shifts by the number of inserted bars
+        int[] passOneArr = info.passOrigLocal()[0];
+        int bodyFirst = passOneArr.length > 0 ? passOneArr[0] : info.originalBars();
+        Set<Integer> passOne = new HashSet<>();
+        for (int local : passOneArr) {
+          passOne.add(local);
+        }
         Map<Integer, int[]> shifted = new TreeMap<>();
         for (Map.Entry<Integer, int[]> e : expandedSigs.entrySet()) {
           int idx = e.getKey();
-          shifted.put(idx <= sectionEnd ? idx : idx + (info.plays() - 1) * info.sectionBars(), e.getValue());
-        }
-        for (int rep = 1; rep < info.plays(); rep++) {
-          for (int b = 0; b < info.sectionBars(); b++) {
-            int[] meter = expandedSigs.get(sectionStart + b);
-            if (meter != null) {
-              shifted.put(sectionEnd + (rep - 1) * info.sectionBars() + 1 + b, meter);
+          if (idx < base) {
+            shifted.put(idx, e.getValue());
+          } else {
+            int local = idx - base;
+            if (local < bodyFirst) {
+              shifted.put(idx, e.getValue());
+            } else if (local < info.originalBars()) {
+              if (passOne.contains(local)) {
+                shifted.put(idx, e.getValue());
+              }
+            } else {
+              shifted.put(idx + added, e.getValue());
             }
+          }
+        }
+        int off = bodyFirst + passOneArr.length;
+        for (int k = 1; k < info.passOrigLocal().length; k++) {
+          for (int local : info.passOrigLocal()[k]) {
+            int[] meter = expandedSigs.get(base + local);
+            if (meter != null) {
+              shifted.put(base + off, meter);
+            }
+            off++;
           }
         }
         expandedSigs = shifted;
       }
-      int barCount = barRanges(system).size();
       runningBars += barCount;
     }
     timeSignatures = expandedSigs;
@@ -190,7 +217,21 @@ public final class TabParser {
         barTimes.add(new BarTime(time + range[0] * tick, time + range[1] * tick, sysIndex, barIndex++));
       }
       compileSystem(system, time, tick, events, warnings);
-      time += system.width * tick;
+      // repeat expansion can push copies past the literal line width; the
+      // system's clock must cover them or the next system overlaps them
+      int effWidth = system.width;
+      for (StringTrack track : system.tracks) {
+        if (track == null) {
+          continue;
+        }
+        if (!track.tokens.isEmpty()) {
+          effWidth = Math.max(effWidth, track.tokens.get(track.tokens.size() - 1).column() + 1);
+        }
+        if (!track.barColumns.isEmpty()) {
+          effWidth = Math.max(effWidth, track.barColumns.get(track.barColumns.size() - 1) + 1);
+        }
+      }
+      time += effWidth * tick;
     }
     events.sort(Comparator.comparingDouble(e -> e.command().timeOffset()));
     List<RenderCommand> commands = new ArrayList<>(events.size());
@@ -275,7 +316,7 @@ public final class TabParser {
       }
     }
     List<int[]> ranges = new ArrayList<>();
-    if (bars.size() >= 2) {
+    if (!bars.isEmpty()) {
       int start = 0;
       for (int bar : bars) {
         ranges.add(new int[]{start, bar + 1}); // include the separator
@@ -548,6 +589,11 @@ public final class TabParser {
           track.tokens.add(new Token(i, Kind.REPEAT_END, plays));
           track.barColumns.add(i + 1);
           i = j;
+        } else if (i == 0) {
+          // lead '|:' artifact: the label line consumed the divider, so the
+          // repeat section opens at the very start of this system
+          track.tokens.add(new Token(0, Kind.REPEAT_START, -1));
+          i++;
         } else {
           warnings.add("Unrecognized character ':' ignored");
           i++;
@@ -561,6 +607,18 @@ public final class TabParser {
           palmMuteStart = -1;
         }
         i += 2;
+      } else if (c == '[') {
+        // alternate-ending mark [N], [N,M], [N-M] attached to the divider
+        // that opened the preceding bar: the bar it opens closes ending(s) N
+        int[] mark = readEndingMark(content, i, warnings);
+        i = mark[0];
+        if (mark[1] != 0) {
+          if (!track.barColumns.isEmpty()) {
+            track.endingMarks.add(new int[]{track.barColumns.get(track.barColumns.size() - 1), mark[1]});
+          } else {
+            warnings.add("Alternate ending mark before any bar divider ignored");
+          }
+        }
       } else if (c == '-' || c == ' ') {
         i++;
       } else {
@@ -579,6 +637,72 @@ public final class TabParser {
       j++;
     }
     return j - from;
+  }
+
+  /**
+   * Parses an alternate-ending mark "[1]", "[1,3]" or "[1-3]" at `from`.
+   * Returns {index past the closing bracket, ending bitmask}; the mask is 0
+   * when the text is not a usable mark (annotation, empty or out of range).
+   */
+  private static int[] readEndingMark(String s, int from, Set<String> warnings) {
+    int n = s.length();
+    int j = from + 1;
+    int mask = 0;
+    int prev = 0; // value before a '-' range dash (0 = none)
+    int value = 0;
+    boolean haveValue = false;
+    boolean bad = false;
+    while (j < n && s.charAt(j) != ']' && !bad) {
+      char c = s.charAt(j);
+      if (c >= '0' && c <= '9') {
+        value = value * 10 + (c - '0');
+        haveValue = true;
+      } else if (c == ',' || c == '-') {
+        if (haveValue) {
+          if (c == '-') {
+            prev = value;
+          } else {
+            mask = addEnding(mask, value, warnings);
+          }
+          value = 0;
+          haveValue = false;
+        } else {
+          bad = true;
+        }
+      } else {
+        bad = true;
+      }
+      j++;
+    }
+    if (bad || j >= n || (!haveValue && prev == 0)) {
+      warnings.add("Unrecognized alternate ending mark ignored");
+      // skip to the closing bracket when there is one, to avoid cascading
+      // warnings from annotation text
+      int close = s.indexOf(']', j);
+      return new int[]{close >= 0 ? close + 1 : j, 0};
+    }
+    if (haveValue) {
+      if (prev > 0) {
+        for (int v = prev; v <= value; v++) {
+          mask = addEnding(mask, v, warnings);
+        }
+      } else {
+        mask = addEnding(mask, value, warnings);
+      }
+    }
+    if (mask == 0) {
+      warnings.add("Alternate ending mark ignored (no usable ending numbers)");
+      return new int[]{j + 1, 0};
+    }
+    return new int[]{j + 1, mask};
+  }
+
+  private static int addEnding(int mask, int ending, Set<String> warnings) {
+    if (ending < 1 || ending > 31) {
+      warnings.add("Alternate ending number " + ending + " out of range ignored");
+      return mask;
+    }
+    return mask | (1 << (ending - 1));
   }
 
   /**
@@ -622,16 +746,23 @@ public final class TabParser {
     return beat / 4.0; // uniform density: one column = one sixteenth
   }
 
-  /** Repeat-section expansion result (local to its system). */
-  private record RepeatInfo(int sectionStartLocal, int sectionBars, int plays) {
+  /**
+   * Repeat-section expansion result (local to its system). passOrigLocal
+   * holds, per pass, the original local bar indices the pass plays.
+   */
+  private record RepeatInfo(int sectionStartLocal, int originalBars, int[][] passOrigLocal) {
   }
 
   /**
-   * Expands |: section :|xN in place: the section's tokens, bar dividers and
-   * palm-mute ranges are duplicated (plays - 1) extra times. Returns null
-   * when the system has no complete repeat pair.
+   * Expands |: section :|xN in place: each pass plays the section body plus
+   * the ending chosen for that pass ([1]/[2] divider marks; ending k plays
+   * on pass k, passes past the last ending repeat it). The body's tokens,
+   * bar dividers and palm-mute ranges are duplicated per pass; content
+   * after the repeat structure shifts to stay behind it. Returns null when
+   * the system has no complete repeat pair.
    */
   private static RepeatInfo expandRepeats(SystemBlock system, Set<String> warnings) {
+    int originalBars = barRanges(system).size();
     Token startTok = null;
     Token endTok = null;
     outer:
@@ -650,86 +781,278 @@ public final class TabParser {
         }
       }
     }
+    boolean anyMarks = false;
+    for (StringTrack track : system.tracks) {
+      if (track != null && !track.endingMarks.isEmpty()) {
+        anyMarks = true;
+        break;
+      }
+    }
     if (startTok == null || endTok == null) {
+      if (anyMarks) {
+        warnings.add("Alternate ending without a repeat section ignored");
+      }
       return null;
     }
-    int plays = Math.max(2, endTok.fret());
     int c1 = startTok.column();
     int c2 = endTok.column();
-    int span = c2 + 1 - c1; // including the section's closing divider column
-    if (span <= 0) {
-      return null;
-    }
+
+    // system-wide dividers and ending masks (the mark lines agree; union)
+    TreeSet<Integer> dividers = new TreeSet<>();
+    TreeMap<Integer, Integer> masks = new TreeMap<>(); // divider col -> ending bitmask
     for (StringTrack track : system.tracks) {
       if (track == null) {
         continue;
       }
-      List<Token> section = new ArrayList<>();
+      dividers.addAll(track.barColumns);
+      for (int[] mark : track.endingMarks) {
+        masks.merge(mark[0], mark[1], (a, b) -> a | b);
+      }
+    }
+    // only marks between the repeat start and the section's last closing
+    // divider belong to this structure
+    int lastEndBar = c2 + 1;
+    for (StringTrack track : system.tracks) {
+      if (track == null) {
+        continue;
+      }
       for (Token t : track.tokens) {
-        if (t.column() >= c1 && t.column() < c2 && t.kind() != Kind.REPEAT_START) {
-          section.add(t);
+        if (t.kind() == Kind.REPEAT_END) {
+          lastEndBar = Math.max(lastEndBar, t.column() + 1);
         }
       }
-      List<Token> newTokens = new ArrayList<>(track.tokens.size() + (plays - 1) * section.size());
+    }
+    final int maskLimit = lastEndBar;
+    masks.keySet().removeIf(d -> d <= c1 || d > maskLimit || !dividers.contains(d));
+
+    // ending groups: a run of dividers with the same mask plays one ending;
+    // a group's bars run to the next group's opening divider
+    List<Integer> masked = new ArrayList<>(masks.keySet());
+    List<Integer> groupStart = new ArrayList<>();
+    List<Integer> groupEnd = new ArrayList<>();   // closing divider of the group's last bar
+    List<Integer> groupMask = new ArrayList<>();
+    for (int idx = 0; idx < masked.size(); idx++) {
+      int d = masked.get(idx);
+      int m = masks.get(d);
+      if (!groupStart.isEmpty() && groupMask.get(groupMask.size() - 1) == m
+          && groupEnd.get(groupEnd.size() - 1) == d) {
+        // the same ending continues with the next marked bar
+        groupEnd.set(groupEnd.size() - 1, idx + 1 < masked.size() ? masked.get(idx + 1) : afterLast(d, dividers, system.width));
+      } else {
+        groupStart.add(d);
+        groupEnd.add(idx + 1 < masked.size() ? masked.get(idx + 1) : afterLast(d, dividers, system.width));
+        groupMask.add(m);
+      }
+    }
+
+    int bodyEnd = groupStart.isEmpty() ? c2 + 1 : groupStart.get(0);
+    int bodyLen = bodyEnd - c1;
+    int plays = Math.max(2, endTok.fret());
+    int maxEnding = 0;
+    for (int m : groupMask) {
+      maxEnding = Math.max(maxEnding, 32 - Integer.numberOfLeadingZeros(m));
+    }
+    plays = Math.max(plays, maxEnding);
+
+    // per-pass layout: pass 1 keeps the original columns; pass k starts
+    // where the previous pass ends
+    int[] passStart = new int[plays];
+    int[] passLen = new int[plays];
+    int[] passGroup = new int[plays];
+    int acc = 0;
+    for (int k = 0; k < plays; k++) {
+      passStart[k] = c1 + acc;
+      // pass 1 always plays the first ending group; later passes pick by
+      // their pass number
+      passGroup[k] = groupStart.isEmpty() ? -1 : (k == 0 ? 0 : chooseGroup(groupMask, k + 1));
+      int g = passGroup[k];
+      passLen[k] = bodyLen + (g >= 0 ? groupEnd.get(g) - groupStart.get(g) : 0);
+      acc += passLen[k];
+    }
+    int lastEnd = groupEnd.isEmpty() ? c2 + 1 : groupEnd.get(groupEnd.size() - 1);
+    int firstGroup = passGroup[0];
+    int trailingShift = passStart[plays - 1] + passLen[plays - 1] - lastEnd;
+
+    for (StringTrack track : system.tracks) {
+      if (track == null) {
+        continue;
+      }
+      // tokens: originals stay for the pre-section content, the body and
+      // the pass-1 group; other groups move to their chosen pass
+      List<Token> rebuilt = new ArrayList<>();
       for (Token t : track.tokens) {
-        newTokens.add(t);
-        if (t == endTok) {
-          for (int rep = 1; rep < plays; rep++) {
-            for (Token u : section) {
-              newTokens.add(new Token(u.column() + rep * span, u.kind(), u.fret()));
+        Kind kind = t.kind();
+        int col = t.column();
+        if (kind == Kind.REPEAT_START || kind == Kind.REPEAT_END) {
+          rebuilt.add(t); // structural markers exist once
+        } else if (col < c1) {
+          rebuilt.add(t);
+        } else if (col < bodyEnd) {
+          rebuilt.add(t);
+          for (int k = 1; k < plays; k++) {
+            rebuilt.add(new Token(col + passStart[k] - c1, kind, t.fret()));
+          }
+        } else {
+          int g = groupIndexAt(groupStart, groupEnd, col);
+          if (g >= 0) {
+            int gStart = groupStart.get(g);
+            if (g == firstGroup) {
+              rebuilt.add(t);
             }
+            for (int k = 1; k < plays; k++) {
+              if (passGroup[k] == g) {
+                rebuilt.add(new Token(col + passStart[k] + bodyLen - gStart, kind, t.fret()));
+              }
+            }
+          } else {
+            rebuilt.add(new Token(col + trailingShift, kind, t.fret()));
           }
         }
       }
+      rebuilt.sort(Comparator.comparingInt(Token::column));
       track.tokens.clear();
-      track.tokens.addAll(newTokens);
+      track.tokens.addAll(rebuilt);
 
-      List<Integer> newBars = new ArrayList<>(track.barColumns.size() + (plays - 1));
+      // bar dividers follow the same regions (bars close at their divider)
+      List<Integer> rebuiltBars = new ArrayList<>();
       for (int col : track.barColumns) {
-        newBars.add(col);
-        if (col > c1 && col <= c2 + 1) {
-          for (int rep = 1; rep < plays; rep++) {
-            newBars.add(col + rep * span);
+        if (col <= c1 || col <= bodyEnd) {
+          rebuiltBars.add(col);
+          for (int k = 1; k < plays; k++) {
+            rebuiltBars.add(col + passStart[k] - c1);
+          }
+        } else {
+          int g = groupIndexAtBar(groupStart, groupEnd, col);
+          if (g >= 0) {
+            int gStart = groupStart.get(g);
+            if (g == firstGroup) {
+              rebuiltBars.add(col);
+            }
+            for (int k = 1; k < plays; k++) {
+              if (passGroup[k] == g) {
+                rebuiltBars.add(col + passStart[k] + bodyLen - gStart);
+              }
+            }
+          } else {
+            rebuiltBars.add(col + trailingShift);
           }
         }
       }
+      rebuiltBars.sort(Comparator.comparingInt(Integer::intValue));
       track.barColumns.clear();
-      track.barColumns.addAll(newBars);
+      track.barColumns.addAll(rebuiltBars);
 
-      List<int[]> newPm = new ArrayList<>(track.palmMuteRanges.size() + (plays - 1));
+      // palm-mute ranges ride with the tokens they cover
+      List<int[]> rebuiltPm = new ArrayList<>();
       for (int[] range : track.palmMuteRanges) {
-        newPm.add(range);
-        if (range[0] >= c1 && range[0] < c2) {
-          for (int rep = 1; rep < plays; rep++) {
-            newPm.add(new int[]{range[0] + rep * span, range[1] + rep * span});
+        int s = range[0];
+        if (s < c1 || s < bodyEnd) {
+          rebuiltPm.add(range);
+          for (int k = 1; k < plays; k++) {
+            rebuiltPm.add(new int[]{range[0] + passStart[k] - c1, range[1] + passStart[k] - c1});
+          }
+        } else {
+          int g = groupIndexAt(groupStart, groupEnd, s);
+          if (g >= 0) {
+            int gStart = groupStart.get(g);
+            if (g == firstGroup) {
+              rebuiltPm.add(range);
+            }
+            for (int k = 1; k < plays; k++) {
+              if (passGroup[k] == g) {
+                rebuiltPm.add(new int[]{range[0] + passStart[k] + bodyLen - gStart,
+                    range[1] + passStart[k] + bodyLen - gStart});
+              }
+            }
+          } else {
+            rebuiltPm.add(new int[]{range[0] + trailingShift, range[1] + trailingShift});
           }
         }
       }
       track.palmMuteRanges.clear();
-      track.palmMuteRanges.addAll(newPm);
+      track.palmMuteRanges.addAll(rebuiltPm);
     }
-    // the section's first bar = the divider at c1; its bars run to the
-    // section's closing divider at c2 + 1
-    int startLocal = 0;
-    TreeSet<Integer> sourceBars = new TreeSet<>();
-    for (StringTrack track : system.tracks) {
-      if (track != null) {
-        // the bar columns were already expanded; recompute from the layout
-        sourceBars.addAll(track.barColumns);
+
+    // original bar-index ranges per pass, for the time-signature map
+    List<Integer> divList = new ArrayList<>(dividers);
+    int divCount = divList.size();
+    int rank0 = 0;
+    for (int d : divList) {
+      if (d < c1) {
+        rank0++;
+      } else {
+        break;
       }
     }
-    for (int col : sourceBars) {
-      if (col < c1) {
-        startLocal++;
+    int bodyFirst = dividers.contains(c1) ? rank0 + 1 : rank0;
+    int bodyLast = bodyEnd < system.width && dividers.contains(bodyEnd) ? rankOf(divList, bodyEnd) : divCount;
+    int[][] passOrigLocal = new int[plays][];
+    for (int k = 0; k < plays; k++) {
+      List<Integer> idx = new ArrayList<>();
+      for (int b = bodyFirst; b <= bodyLast; b++) {
+        idx.add(b);
+      }
+      int g = passGroup[k];
+      if (g >= 0) {
+        int gFirst = rankOf(divList, groupStart.get(g)) + 1;
+        int gEnd = groupEnd.get(g);
+        int gLast = gEnd < system.width && dividers.contains(gEnd) ? rankOf(divList, gEnd) : divCount;
+        for (int b = gFirst; b <= gLast; b++) {
+          idx.add(b);
+        }
+      }
+      passOrigLocal[k] = idx.stream().mapToInt(Integer::intValue).toArray();
+    }
+    return new RepeatInfo(rank0, originalBars, passOrigLocal);
+  }
+
+  /** The divider after `col`, or the system width when `col` is the last. */
+  private static int afterLast(int col, TreeSet<Integer> dividers, int width) {
+    Integer next = dividers.higher(col);
+    return next != null ? next : width;
+  }
+
+  /** The ending group whose column window contains `col`, or -1 (trailing). */
+  private static int groupIndexAt(List<Integer> groupStart, List<Integer> groupEnd, int col) {
+    for (int g = 0; g < groupStart.size(); g++) {
+      if (col >= groupStart.get(g) && col < groupEnd.get(g)) {
+        return g;
       }
     }
-    int sectionBars = 0;
-    for (int col : sourceBars) {
-      if (col > c1 && col <= c2 + 1) {
-        sectionBars++;
+    return -1;
+  }
+
+  /** Bar-divider variant: a bar belongs to the group it closes, (start, end]. */
+  private static int groupIndexAtBar(List<Integer> groupStart, List<Integer> groupEnd, int col) {
+    for (int g = 0; g < groupStart.size(); g++) {
+      if (col > groupStart.get(g) && col <= groupEnd.get(g)) {
+        return g;
       }
     }
-    return new RepeatInfo(startLocal, Math.max(1, sectionBars), plays);
+    return -1;
+  }
+
+  /**
+   * The ending group pass `pass` plays: the first group whose mask contains
+   * the pass number, else the first group for a later ending, else the last.
+   */
+  private static int chooseGroup(List<Integer> groupMask, int pass) {
+    int bit = 1 << (pass - 1);
+    for (int g = 0; g < groupMask.size(); g++) {
+      if ((groupMask.get(g) & bit) != 0) {
+        return g;
+      }
+    }
+    for (int g = 0; g < groupMask.size(); g++) {
+      if (Integer.lowestOneBit(groupMask.get(g)) > bit) {
+        return g;
+      }
+    }
+    return groupMask.size() - 1;
+  }
+
+  private static int rankOf(List<Integer> divList, int col) {
+    return divList.indexOf(col);
   }
 
   private static void compileSystem(SystemBlock system, double start, double tick, List<TabEvent> out,

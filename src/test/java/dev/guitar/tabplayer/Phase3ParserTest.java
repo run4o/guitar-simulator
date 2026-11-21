@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -403,5 +404,79 @@ class Phase3ParserTest {
         // bars beyond the sparse map default to 4/4
         assertEquals(4, timeline.timeSignatures().get(2)[0]);
         assertEquals(4, timeline.timeSignatures().get(2)[1]);
+    }
+
+    /* ---- alternate endings ------------------------------------------- */
+
+    @Test
+    void alternateEndingsPlayTheirPassOnly() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--0-|:--1-|[1]--2-:|[2]--3-|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertEquals(5, plucks.size());
+        // play order: lead bar, body, ending 1, body again, ending 2
+        assertArrayEquals(new int[]{0, 1, 2, 1, 3},
+                plucks.stream().mapToInt(RenderCommand::fret).toArray());
+        for (int i = 1; i < plucks.size(); i++) {
+            assertTrue(plucks.get(i).timeOffset() > plucks.get(i - 1).timeOffset(),
+                    "pluck times must stay ordered");
+        }
+        // lead bar + body + ending 1 + body again + ending 2
+        assertEquals(5, timeline.barTimes().size());
+    }
+
+    @Test
+    void endingsWithXCountRepeatTheLastEnding() {
+        // :|x3 with endings 1 and 2: pass 3 has no ending 3, so ending 2 repeats
+        TabParser.TabTimeline timeline = TabParser.compile("e|--0-|:--1-|[1]--2-:|x3[2]--3-|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertEquals(7, plucks.size());
+        assertArrayEquals(new int[]{0, 1, 2, 1, 3, 1, 3},
+                plucks.stream().mapToInt(RenderCommand::fret).toArray());
+    }
+
+    @Test
+    void contentAfterARepeatShiftsBehindIt() {
+        // the bar after the repeat structure must play after every pass,
+        // not collide with the expanded copies
+        TabParser.TabTimeline timeline = TabParser.compile("e|--0-|:--1-|[1]--2-:|[2]--3-|--4-|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertArrayEquals(new int[]{0, 1, 2, 1, 3, 4},
+                plucks.stream().mapToInt(RenderCommand::fret).toArray());
+        assertEquals(6, timeline.barTimes().size());
+        // the trailing bar comes after the last pass's ending
+        assertTrue(plucks.get(5).timeOffset() > plucks.get(4).timeOffset());
+    }
+
+    @Test
+    void endingMarkWithoutRepeatWarns() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--0-|[1]--1-|\n");
+        assertTrue(timeline.warnings().stream().anyMatch(w -> w.contains("Alternate ending")));
+    }
+
+    @Test
+    void repeatStartOnTheFirstBarIsDetected() {
+        // the label line consumes the lead '|', so the section's ':' lands at
+        // the start of the content
+        TabParser.TabTimeline timeline = TabParser.compile("e|:--1-|[1]--2-:|[2]--3-|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertArrayEquals(new int[]{1, 2, 1, 3},
+                plucks.stream().mapToInt(RenderCommand::fret).toArray());
+        assertEquals(4, timeline.barTimes().size());
+    }
+
+    @Test
+    void alternateEndingTimeSignaturesFollowTheirPass() {
+        // 3/4 on the ending-2 bar: after expansion it must land on the
+        // second pass's ending, not on the body copy
+        var meters = new java.util.HashMap<Integer, int[]>();
+        meters.put(3, new int[]{3, 4});
+        TabParser.TabTimeline timeline = TabParser.compile(
+                "e|--0-|:--1-|[1]--2-:|[2]--3-|--4-|\n", 120, meters);
+        // bars: lead, body, ending1, body again, ending2, trailing
+        List<int[]> sigs = timeline.timeSignatures();
+        assertEquals(6, sigs.size());
+        assertArrayEquals(new int[]{4, 4}, sigs.get(3));
+        assertArrayEquals(new int[]{3, 4}, sigs.get(4));
+        assertArrayEquals(new int[]{4, 4}, sigs.get(5));
     }
 }

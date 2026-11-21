@@ -80,8 +80,8 @@ class TabBlocksTest {
         }
         assertTrue(lines.get(3).endsWith("--2--2--2--2--2-5-|"),
                 "remaining content must be the second bar: " + lines.get(3));
-        // one remaining separator -> the fixed 16-column fallback applies (16 + 3)
-        assertEquals(2, TabParser.barSpans(edited).size());
+        // one remaining separator -> exactly one bar (no phantom trailing block)
+        assertEquals(1, TabParser.barSpans(edited).size());
     }
 
     @Test
