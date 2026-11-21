@@ -46,6 +46,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setOverdriveFn;
   private final MethodHandle setDistortionFn;
   private final MethodHandle setFuzzFn;
+  private final MethodHandle setDelayFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -94,6 +95,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setFuzzFn = linker.downcallHandle(symbols.find("guitar_engine_set_fuzz").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setDelayFn = linker.downcallHandle(symbols.find("guitar_engine_set_delay").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -406,6 +409,19 @@ public final class GuitarEngine implements AutoCloseable {
       setFuzzFn.invokeExact(enabled, fuzz, volume);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_fuzz failed", t);
+    }
+  }
+
+  /**
+   * Delay pedal: repeats with feedback (time in seconds 0.02..1.0,
+   * feedback 0..0.9, mix 0..1), after the dirt section, on both real-time
+   * and offline-render paths.
+   */
+  public void setDelay(boolean enabled, float time, float feedback, float mix) {
+    try {
+      setDelayFn.invokeExact(enabled, time, feedback, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_delay failed", t);
     }
   }
 

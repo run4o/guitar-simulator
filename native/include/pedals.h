@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace gte {
 
@@ -142,8 +143,7 @@ private:
  * again so no DC reaches the output), a dry/wet blend restores body, and a
  * tone low-pass (3..12 kHz) trims the fizz.
  */
-class OverdrivePedal : public Pedal {
-public:
+class OverdrivePedal : public Pedal {public:
     void prepare(float sample_rate) override {
         fs_ = sample_rate;
         hp_state_ = lp_state_ = 0.0f;
@@ -182,6 +182,65 @@ private:
 };
 
 /*
+ * Delay: distinct repeats by feeding the signal into a circular delay
+ * buffer and reading it back after `time` seconds. The bucket-brigade
+ * character comes from a fixed ~4 kHz low-pass on the feedback path —
+ * each repeat is a touch darker than the one before it. Input into the
+ * line is signal + feedback (so repeats regenerate), output is dry plus
+ * wet*mix. The buffer is heap-allocated in prepare() (up to 1.2 s) so the
+ * offline renderer never puts a half-megabyte array on the stack.
+ */
+class DelayPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        const int capacity = static_cast<int>(sample_rate * 1.2f) + 16;
+        if (static_cast<int>(buffer_.size()) != capacity) {
+            buffer_.assign(capacity, 0.0f);
+        } else {
+            std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+        }
+        write_ = 0;
+        lp_state_ = 0.0f;
+        setParams(time_, feedback_, mix_);
+    }
+
+    void setParams(float time_seconds, float feedback, float mix) {
+        time_ = std::clamp(time_seconds, 0.02f, 1.0f);
+        feedback_ = std::clamp(feedback, 0.0f, 0.9f);
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+        delay_samples_ = std::min(
+            static_cast<int>(time_ * fs_), static_cast<int>(buffer_.size()) - 2);
+        delay_samples_ = std::max(delay_samples_, 2);
+        lp_coef_ = 1.0f - std::exp(-6.2831853f * 4000.0f / fs_);
+    }
+
+    float process(float in) override {
+        const int size = static_cast<int>(buffer_.size());
+        int read = write_ - delay_samples_;
+        if (read < 0) {
+            read += size;
+        }
+        float delayed = buffer_[read];
+        lp_state_ += lp_coef_ * (delayed - lp_state_);
+        buffer_[write_] = in + lp_state_ * feedback_;
+        write_ = write_ + 1 == size ? 0 : write_ + 1;
+        return in + lp_state_ * mix_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float time_ = 0.3f;
+    float feedback_ = 0.4f;
+    float mix_ = 0.5f;
+    float lp_coef_ = 0.3f;
+    float lp_state_ = 0.0f;
+    int delay_samples_ = 13230;
+    int write_ = 0;
+    std::vector<float> buffer_;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -193,6 +252,7 @@ public:
         fuzz_.prepare(fs_);
         distortion_.prepare(fs_);
         overdrive_.prepare(fs_);
+        delay_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -215,6 +275,11 @@ public:
         distortion_.setParams(drive, tone, level);
     }
 
+    void setDelay(bool enabled, float time_seconds, float feedback, float mix) {
+        delay_.enabled = enabled;
+        delay_.setParams(time_seconds, feedback, mix);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -228,6 +293,9 @@ public:
         if (distortion_.enabled) {
             in = distortion_.process(in);
         }
+        if (delay_.enabled) {
+            in = delay_.process(in);
+        }
         return in;
     }
 
@@ -237,6 +305,7 @@ private:
     FuzzPedal fuzz_;
     OverdrivePedal overdrive_;
     DistortionPedal distortion_;
+    DelayPedal delay_;
 };
 
 } // namespace gte

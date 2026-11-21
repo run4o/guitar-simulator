@@ -206,4 +206,73 @@ class Phase6PedalTest {
         assertTrue(fuzzedLate > 3.0f * cleanLate,
                 "fuzz must sustain: clean=" + cleanLate + " fuzz=" + fuzzedLate);
     }
+
+    /* ---- delay --------------------------------------------------------- */
+
+    /** Same fixture with delay params (amp section neutral). */
+    private WavAnalysis.Wav renderDelay(boolean enabled, float time, float feedback, float mix)
+            throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f));
+        Path wav = tempDir.resolve("delay-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setDelay(enabled, time, feedback, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 2.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedDelayLeavesTheSignalUntouched() throws Exception {
+        // both renders bypassed: knob positions must not leak into the signal
+        WavAnalysis.Wav knobsUp = renderDelay(false, 0.9f, 0.85f, 0.9f);
+        WavAnalysis.Wav clean = renderDelay(false, 0.02f, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed delay must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void delayEchoesAfterTheDryTail() throws Exception {
+        // string tau is far from dead by 0.42 s (mute at 0.3 s), so an echo at
+        // 0.4 s with no feedback is almost pure wet content
+        WavAnalysis.Wav clean = renderDelay(false, 0.4f, 0f, 0f);
+        WavAnalysis.Wav echoed = renderDelay(true, 0.4f, 0f, 0.6f);
+        float echo = WavAnalysis.rms(echoed, 0.42, 0.60);
+        float tail = WavAnalysis.rms(clean, 0.42, 0.60);
+        assertTrue(echo > 5.0f * tail,
+                "the delay line must produce an echo: echo=" + echo + " tail=" + tail);
+        // no echo should land inside the dry window (echo arrives at 0.4 s)
+        float dryWin = WavAnalysis.rms(echoed, 0.05, 0.20);
+        float dryClean = WavAnalysis.rms(clean, 0.05, 0.20);
+        float ratio = dryWin / dryClean;
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "the dry window must stay untouched, ratio=" + ratio);
+    }
+
+    @Test
+    void delayFeedbackRegeneratesTheRepeats() throws Exception {
+        // 2nd echo region (0.5-0.7 s): fb 0.7 keeps ~half of the first echo,
+        // fb 0.1 has already lost 99% of it
+        WavAnalysis.Wav lowFb = renderDelay(true, 0.25f, 0.1f, 0.6f);
+        WavAnalysis.Wav highFb = renderDelay(true, 0.25f, 0.7f, 0.6f);
+        float secondLow = WavAnalysis.rms(lowFb, 0.55, 0.70);
+        float secondHigh = WavAnalysis.rms(highFb, 0.55, 0.70);
+        assertTrue(secondHigh > 4.0f * secondLow,
+                "high feedback must sustain the repeats: " + secondHigh + " vs " + secondLow);
+    }
+
+    @Test
+    void delayMixScalesTheWetLevel() throws Exception {
+        WavAnalysis.Wav quiet = renderDelay(true, 0.25f, 0f, 0.2f);
+        WavAnalysis.Wav loud = renderDelay(true, 0.25f, 0f, 0.9f);
+        float low = WavAnalysis.rms(quiet, 0.28, 0.45);
+        float high = WavAnalysis.rms(loud, 0.28, 0.45);
+        float ratio = high / low;
+        assertTrue(ratio > 2.5f && ratio < 6.5f,
+                "mix must scale the echo level (~4.5x from 0.2 to 0.9): " + ratio);
+    }
 }

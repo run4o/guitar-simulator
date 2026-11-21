@@ -47,6 +47,10 @@ public final class AppContext {
   private final DoubleProperty distTone = new SimpleDoubleProperty(0.5);
   private final DoubleProperty distLevel = new SimpleDoubleProperty(0.5);
   private final BooleanProperty distEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty delayTime = new SimpleDoubleProperty(0.3);
+  private final DoubleProperty delayFeedback = new SimpleDoubleProperty(0.4);
+  private final DoubleProperty delayMix = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty delayEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -60,7 +64,8 @@ public final class AppContext {
     }
     for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
         distDrive, distTone, distLevel, distEnabled,
-        fuzzAmount, fuzzVolume, fuzzEnabled}) {
+        fuzzAmount, fuzzVolume, fuzzEnabled,
+        delayTime, delayFeedback, delayMix, delayEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -183,6 +188,22 @@ public final class AppContext {
     return distEnabled;
   }
 
+  public DoubleProperty delayTimeProperty() {
+    return delayTime;
+  }
+
+  public DoubleProperty delayFeedbackProperty() {
+    return delayFeedback;
+  }
+
+  public DoubleProperty delayMixProperty() {
+    return delayMix;
+  }
+
+  public BooleanProperty delayEnabledProperty() {
+    return delayEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -214,6 +235,10 @@ public final class AppContext {
     state.put("fuzz.enabled", Boolean.toString(fuzzEnabled.get()));
     state.put("fuzz.fuzz", Double.toString(fuzzAmount.get()));
     state.put("fuzz.volume", Double.toString(fuzzVolume.get()));
+    state.put("delay.enabled", Boolean.toString(delayEnabled.get()));
+    state.put("delay.time", Double.toString(delayTime.get()));
+    state.put("delay.feedback", Double.toString(delayFeedback.get()));
+    state.put("delay.mix", Double.toString(delayMix.get()));
     return state;
   }
 
@@ -231,6 +256,10 @@ public final class AppContext {
     fuzzEnabled.set(Boolean.parseBoolean(state.getOrDefault("fuzz.enabled", "false")));
     fuzzAmount.set(clamp(parse(state.getOrDefault("fuzz.fuzz", "0.5")), 0, 1));
     fuzzVolume.set(clamp(parse(state.getOrDefault("fuzz.volume", "0.5")), 0, 1));
+    delayEnabled.set(Boolean.parseBoolean(state.getOrDefault("delay.enabled", "false")));
+    delayTime.set(clamp(parse(state.getOrDefault("delay.time", "0.3")), 0.02, 1.0));
+    delayFeedback.set(clamp(parse(state.getOrDefault("delay.feedback", "0.4")), 0, 0.9));
+    delayMix.set(clamp(parse(state.getOrDefault("delay.mix", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -262,6 +291,8 @@ public final class AppContext {
     engine.setFuzz(fuzzEnabled.get(), (float) fuzzAmount.get(), (float) fuzzVolume.get());
     engine.setDistortion(distEnabled.get(), (float) distDrive.get(),
         (float) distTone.get(), (float) distLevel.get());
+    engine.setDelay(delayEnabled.get(), (float) delayTime.get(),
+        (float) delayFeedback.get(), (float) delayMix.get());
   }
 
   public void applyTuning(Tuning tuning) {

@@ -92,6 +92,7 @@ GTE_EXPORT void      guitar_engine_set_distortion(bool enabled, float drive, flo
 /* Pedalboard: buzzy near-square fuzz (fuzz 0..1, volume 0..1), first in the
  * dirt section and before the amp FX, on both paths. */
 GTE_EXPORT void      guitar_engine_set_fuzz(bool enabled, float fuzz, float volume);
+GTE_EXPORT void      guitar_engine_set_delay(bool enabled, float time, float feedback, float mix);
 
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);

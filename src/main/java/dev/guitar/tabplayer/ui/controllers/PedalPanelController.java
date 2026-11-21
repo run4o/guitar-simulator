@@ -63,5 +63,19 @@ public class PedalPanelController {
     distTone.valueProperty().bindBidirectional(ctx.distToneProperty());
     distLevel.valueProperty().bindBidirectional(ctx.distLevelProperty());
     pedalRow.getChildren().add(distortion);
+
+    // DELAY: repeats with feedback (time knob maps 0..1 -> 0.02..1.0 s)
+    Knob delayTime = new Knob(0, 1, 0.4, 44);
+    Knob delayFb = new Knob(0, 0.9, 0.4, 44);
+    Knob delayMix = new Knob(0, 1, 0.5, 44);
+    PedalBox delay = new PedalBox("DELAY");
+    delay.addKnob(delayTime, "TIME");
+    delay.addKnob(delayFb, "FEEDBACK");
+    delay.addKnob(delayMix, "MIX");
+    delay.enabledProperty().bindBidirectional(ctx.delayEnabledProperty());
+    delayTime.valueProperty().bindBidirectional(ctx.delayTimeProperty());
+    delayFb.valueProperty().bindBidirectional(ctx.delayFeedbackProperty());
+    delayMix.valueProperty().bindBidirectional(ctx.delayMixProperty());
+    pedalRow.getChildren().add(delay);
   }
 }
