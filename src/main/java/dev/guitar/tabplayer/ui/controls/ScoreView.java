@@ -144,9 +144,14 @@ public class ScoreView extends Canvas {
     g.fillRect(0, 0, w, h);
 
     if (timeline != null && !timeline.barTimes().isEmpty()) {
-      // next-note times per string (cell widths) — built once per draw
+      // next-note times per string (cell widths) — built once per draw;
+      // vibrato/bend do not end a note's visual sustain
       java.util.Map<Integer, java.util.List<Double>> timesByString = new java.util.HashMap<>();
       for (TabParser.TabEvent event : timeline.events()) {
+        int type = event.command().type();
+        if (type == RenderCommandType.VIBRATO || type == RenderCommandType.BEND) {
+          continue;
+        }
         timesByString.computeIfAbsent(event.command().stringIndex(), k -> new java.util.ArrayList<>())
             .add((double) event.command().timeOffset());
       }
@@ -369,5 +374,6 @@ public class ScoreView extends Canvas {
     static final int LEGATO = 1;
     static final int BEND = 2;
     static final int MUTE = 3;
+    static final int VIBRATO = 6;
   }
 }
