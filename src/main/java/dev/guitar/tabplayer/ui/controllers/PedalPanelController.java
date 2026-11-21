@@ -27,5 +27,16 @@ public class PedalPanelController {
     boost.enabledProperty().bindBidirectional(ctx.boostEnabledProperty());
     gain.valueProperty().bindBidirectional(ctx.boostGainProperty());
     pedalRow.getChildren().add(boost);
+
+    // OVERDRIVE: warm soft-clipping grit
+    Knob odDrive = new Knob(0, 1, 0.5, 44);
+    Knob odTone = new Knob(0, 1, 0.5, 44);
+    PedalBox overdrive = new PedalBox("OVERDRIVE");
+    overdrive.addKnob(odDrive, "DRIVE");
+    overdrive.addKnob(odTone, "TONE");
+    overdrive.enabledProperty().bindBidirectional(ctx.odEnabledProperty());
+    odDrive.valueProperty().bindBidirectional(ctx.odDriveProperty());
+    odTone.valueProperty().bindBidirectional(ctx.odToneProperty());
+    pedalRow.getChildren().add(overdrive);
   }
 }

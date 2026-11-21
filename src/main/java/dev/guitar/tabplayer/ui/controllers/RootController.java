@@ -249,7 +249,7 @@ public class RootController {
           guitarPanelController.getTuning(),
           ctx.driveProperty().get(), ctx.toneProperty().get(),
           ctx.reverbProperty().get(), ctx.masterProperty().get(),
-          ctx.boostEnabledProperty().get(), ctx.boostGainProperty().get()));
+          ctx.pedalState()));
       ctx.status("PROJECT SAVED " + file.getFileName().toString().toUpperCase());
     } catch (Exception e) {
       ctx.status("PROJECT SAVE FAILED: " + e.getMessage());
@@ -263,7 +263,7 @@ public class RootController {
       // first (tuning/fx) and the tab last — one final compile.
       guitarPanelController.setBpm(project.bpm());
       ctx.setFxValues(project.drive(), project.tone(), project.reverb(), project.master());
-      ctx.setBoostValues(project.boostEnabled(), project.boostGain());
+      ctx.loadPedalState(project.pedals());
       guitarPanelController.selectTuning(project.tuning());
       tabPanelController.replaceTabText(project.tab());
       ctx.status("PROJECT LOADED " + file.getFileName().toString().toUpperCase());

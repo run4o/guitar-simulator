@@ -81,6 +81,10 @@ GTE_EXPORT void      guitar_engine_set_fx(float drive, float tone, float reverb_
 /* Pedalboard: clean boost, 0..18 dB, applied before the amp FX on both paths. */
 GTE_EXPORT void      guitar_engine_set_boost(bool enabled, float gain_db);
 
+/* Pedalboard: warm soft-clipping grit (drive 0..1, tone 0..1), after any
+ * boost and before the amp FX, on both paths. */
+GTE_EXPORT void      guitar_engine_set_overdrive(bool enabled, float drive, float tone);
+
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);
 

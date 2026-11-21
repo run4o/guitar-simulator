@@ -2,6 +2,8 @@ package dev.guitar.tabplayer.app;
 
 import dev.guitar.tabplayer.engine.GuitarEngine;
 import dev.guitar.tabplayer.model.Tuning;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javafx.beans.property.BooleanProperty;
@@ -35,6 +37,9 @@ public final class AppContext {
   // Pedalboard parameters: one slot per pedal, pushed as one call each.
   private final DoubleProperty boostGain = new SimpleDoubleProperty(6);
   private final BooleanProperty boostEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty odDrive = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty odTone = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty odEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -46,8 +51,13 @@ public final class AppContext {
     for (DoubleProperty p : new DoubleProperty[]{drive, tone, reverb, master}) {
       p.addListener((o, ov, nv) -> applyFx());
     }
-    boostGain.addListener((o, ov, nv) -> applyPedals());
-    boostEnabled.addListener((o, ov, nv) -> applyPedals());
+    for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled}) {
+      if (p instanceof DoubleProperty d) {
+        d.addListener((o, ov, nv) -> applyPedals());
+      } else if (p instanceof BooleanProperty b) {
+        b.addListener((o, ov, nv) -> applyPedals());
+      }
+    }
   }
 
   /**
@@ -124,6 +134,18 @@ public final class AppContext {
     return boostEnabled;
   }
 
+  public DoubleProperty odDriveProperty() {
+    return odDrive;
+  }
+
+  public DoubleProperty odToneProperty() {
+    return odTone;
+  }
+
+  public BooleanProperty odEnabledProperty() {
+    return odEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -136,6 +158,40 @@ public final class AppContext {
   public void setBoostValues(boolean enabled, double gain) {
     boostEnabled.set(enabled);
     boostGain.set(Math.max(0, Math.min(18, gain)));
+  }
+
+  /**
+   * The pedalboard state for project files: keys "pedal.<pedal>.<param>".
+   */
+  public Map<String, String> pedalState() {
+    Map<String, String> state = new TreeMap<>();
+    state.put("boost.enabled", Boolean.toString(boostEnabled.get()));
+    state.put("boost.gain", Double.toString(boostGain.get()));
+    state.put("od.enabled", Boolean.toString(odEnabled.get()));
+    state.put("od.drive", Double.toString(odDrive.get()));
+    state.put("od.tone", Double.toString(odTone.get()));
+    return state;
+  }
+
+  /** Restores the pedalboard from a project file's pedal.* entries. */
+  public void loadPedalState(Map<String, String> state) {
+    boostEnabled.set(Boolean.parseBoolean(state.getOrDefault("boost.enabled", "false")));
+    boostGain.set(clamp(parse(state.getOrDefault("boost.gain", "6")), 0, 18));
+    odEnabled.set(Boolean.parseBoolean(state.getOrDefault("od.enabled", "false")));
+    odDrive.set(clamp(parse(state.getOrDefault("od.drive", "0.5")), 0, 1));
+    odTone.set(clamp(parse(state.getOrDefault("od.tone", "0.5")), 0, 1));
+  }
+
+  private static double parse(String value) {
+    try {
+      return Double.parseDouble(value);
+    } catch (NumberFormatException e) {
+      return 0;
+    }
+  }
+
+  private static double clamp(double v, double min, double max) {
+    return Math.max(min, Math.min(max, v));
   }
 
   private void applyFx() {
@@ -151,6 +207,7 @@ public final class AppContext {
       return;
     }
     engine.setBoost(boostEnabled.get(), (float) boostGain.get());
+    engine.setOverdrive(odEnabled.get(), (float) odDrive.get(), (float) odTone.get());
   }
 
   public void applyTuning(Tuning tuning) {

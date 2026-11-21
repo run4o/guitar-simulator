@@ -106,6 +106,9 @@ FxParams g_fx;
 struct PedalParams {
     std::atomic<bool> boost_enabled{false};
     std::atomic<float> boost_gain{0.0f}; // dB, 0..18
+    std::atomic<bool> od_enabled{false};
+    std::atomic<float> od_drive{0.5f};
+    std::atomic<float> od_tone{0.5f};
 };
 PedalParams g_pedals;
 
@@ -203,13 +206,21 @@ void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
     }
 }
 
-void sync_pedal_params(gte::PedalChain& chain, float cached[2]) {
-    const float enabled = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
-    const float gain = g_pedals.boost_gain.load(std::memory_order_relaxed);
-    if (enabled != cached[0] || gain != cached[1]) {
-        chain.setBoost(enabled > 0.5f, gain);
-        cached[0] = enabled;
-        cached[1] = gain;
+void sync_pedal_params(gte::PedalChain& chain, float cached[5]) {
+    const float boostOn = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float boostGain = g_pedals.boost_gain.load(std::memory_order_relaxed);
+    const float odOn = g_pedals.od_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float odDrive = g_pedals.od_drive.load(std::memory_order_relaxed);
+    const float odTone = g_pedals.od_tone.load(std::memory_order_relaxed);
+    if (boostOn != cached[0] || boostGain != cached[1] || odOn != cached[2]
+        || odDrive != cached[3] || odTone != cached[4]) {
+        chain.setBoost(boostOn > 0.5f, boostGain);
+        chain.setOverdrive(odOn > 0.5f, odDrive, odTone);
+        cached[0] = boostOn;
+        cached[1] = boostGain;
+        cached[2] = odOn;
+        cached[3] = odDrive;
+        cached[4] = odTone;
     }
 }
 
@@ -224,8 +235,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
     sync_fx_params(s.fx_l, fx_cached_l);
     sync_fx_params(s.fx_r, fx_cached_r);
-    static thread_local float pedal_cached_l[2] = { -1.0f, -1.0f };
-    static thread_local float pedal_cached_r[2] = { -1.0f, -1.0f };
+    static thread_local float pedal_cached_l[5] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_r[5] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
     sync_pedal_params(s.pedals_l, pedal_cached_l);
     sync_pedal_params(s.pedals_r, pedal_cached_r);
 
@@ -393,6 +404,13 @@ GTE_EXPORT void guitar_engine_set_boost(bool enabled, float gain_db) {
     g_pedals.boost_gain.store(std::clamp(gain_db, 0.0f, 18.0f), std::memory_order_relaxed);
 }
 
+/* Pedalboard: warm soft-clipping grit, after any boost, before the amp FX. */
+GTE_EXPORT void guitar_engine_set_overdrive(bool enabled, float drive, float tone) {
+    g_pedals.od_enabled.store(enabled, std::memory_order_relaxed);
+    g_pedals.od_drive.store(std::clamp(drive, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.od_tone.store(std::clamp(tone, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -436,7 +454,7 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
     gte::PedalChain pedals;
     pedals.prepare(fs);
     {
-        float cached[2] = { -1.0f, -1.0f };
+        float cached[5] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
         sync_pedal_params(pedals, cached);
     }
 

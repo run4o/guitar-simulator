@@ -50,9 +50,7 @@
     -fx-background-radius: 5;
     -fx-border-color: #2A2E40;
     -fx-border-radius: 5;
-    -fx-padding: 8 10 8 10;
-    -fx-min-width: 86;
-    -fx-pref-width: 86;
+    -fx-padding: 8 12 8 12;
 }
 
 .pedal-name {

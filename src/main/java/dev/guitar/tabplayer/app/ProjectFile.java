@@ -6,11 +6,14 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Properties;
+import java.util.TreeMap;
 
 /**
- * Project file (.gtp): the tab text plus the console state — tempo, tuning
- * and the four FX values. Dependency-free java.util.Properties format.
+ * Project file (.gtp): the tab text plus the console state — tempo, tuning,
+ * the four FX values and the pedalboard (generic "pedal.<name>.<param>"
+ * keys, so pedals extend the file without format changes).
  */
 public final class ProjectFile {
 
@@ -22,17 +25,16 @@ public final class ProjectFile {
   private static final String TONE_KEY = "fx.tone";
   private static final String REVERB_KEY = "fx.reverb";
   private static final String MASTER_KEY = "fx.master";
-  private static final String BOOST_ENABLED_KEY = "pedal.boost.enabled";
-  private static final String BOOST_GAIN_KEY = "pedal.boost.gain";
+  private static final String PEDAL_PREFIX = "pedal.";
 
   public record Project(String tab, int bpm, Tuning tuning,
       double drive, double tone, double reverb, double master,
-      boolean boostEnabled, double boostGain) {
+      Map<String, String> pedals) {
 
-    /** Pre-pedalboard format (boost state defaults). */
+    /** Pre-pedalboard format (empty pedal state). */
     public Project(String tab, int bpm, Tuning tuning,
         double drive, double tone, double reverb, double master) {
-      this(tab, bpm, tuning, drive, tone, reverb, master, false, 6.0);
+      this(tab, bpm, tuning, drive, tone, reverb, master, Map.of());
     }
   }
 
@@ -49,8 +51,9 @@ public final class ProjectFile {
     props.setProperty(TONE_KEY, Double.toString(project.tone()));
     props.setProperty(REVERB_KEY, Double.toString(project.reverb()));
     props.setProperty(MASTER_KEY, Double.toString(project.master()));
-    props.setProperty(BOOST_ENABLED_KEY, Boolean.toString(project.boostEnabled()));
-    props.setProperty(BOOST_GAIN_KEY, Double.toString(project.boostGain()));
+    for (Map.Entry<String, String> e : new TreeMap<>(project.pedals()).entrySet()) {
+      props.setProperty(PEDAL_PREFIX + e.getKey(), e.getValue());
+    }
     try (OutputStream out = Files.newOutputStream(file)) {
       props.store(out, "Guitar Tab Player project");
     }
@@ -61,6 +64,12 @@ public final class ProjectFile {
     try (InputStream in = Files.newInputStream(file)) {
       props.load(in);
     }
+    Map<String, String> pedals = new TreeMap<>();
+    for (String key : props.stringPropertyNames()) {
+      if (key.startsWith(PEDAL_PREFIX)) {
+        pedals.put(key.substring(PEDAL_PREFIX.length()), props.getProperty(key));
+      }
+    }
     return new Project(
         props.getProperty(TAB_KEY, ""),
         parseInt(props.getProperty(BPM_KEY), 120),
@@ -69,12 +78,7 @@ public final class ProjectFile {
         parseDouble(props.getProperty(TONE_KEY), 1),
         parseDouble(props.getProperty(REVERB_KEY), 0),
         parseDouble(props.getProperty(MASTER_KEY), 1),
-        parseBool(props.getProperty(BOOST_ENABLED_KEY), false),
-        parseDouble(props.getProperty(BOOST_GAIN_KEY), 6));
-  }
-
-  private static boolean parseBool(String value, boolean fallback) {
-    return value == null ? fallback : Boolean.parseBoolean(value);
+        pedals);
   }
 
   private static int parseInt(String value, int fallback) {

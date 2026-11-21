@@ -49,6 +49,54 @@ private:
 };
 
 /*
+ * Overdrive: warm, dynamic grit from gently clipping the wave's peaks —
+ * a pushed tube amp. A 720 Hz one-pole high-pass (the TubeScreamer
+ * hallmark) keeps bass fundamentals tight, a variable gain (1..15) feeds a
+ * slightly asymmetric tanh waveshaper (a small bias lifts the positive
+ * half, mimicking the tube's asymmetric transfer; the offset is removed
+ * again so no DC reaches the output), a dry/wet blend restores body, and a
+ * tone low-pass (3..12 kHz) trims the fizz.
+ */
+class OverdrivePedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        hp_state_ = lp_state_ = 0.0f;
+        setParams(drive_, tone_);
+    }
+
+    void setParams(float drive, float tone) {
+        drive_ = std::clamp(drive, 0.0f, 1.0f);
+        tone_ = std::clamp(tone, 0.0f, 1.0f);
+        hp_coef_ = 1.0f - std::exp(-6.2831853f * 720.0f / fs_);
+        const float cutoff = 3000.0f * std::pow(4.0f, tone_); // 3 kHz .. 12 kHz
+        lp_coef_ = 1.0f - std::exp(-6.2831853f * cutoff / fs_);
+        gain_ = 1.0f + drive_ * 14.0f;
+        blend_ = 0.35f + 0.45f * drive_;
+    }
+
+    float process(float in) override {
+        hp_state_ += hp_coef_ * (in - hp_state_);
+        const float hp = in - hp_state_;
+        const float bias = 0.08f * drive_;
+        const float shaped = std::tanh(gain_ * hp + bias) - std::tanh(bias);
+        lp_state_ += lp_coef_ * (shaped - lp_state_);
+        return (1.0f - blend_) * in + blend_ * lp_state_ * 0.9f;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float drive_ = 0.0f;
+    float tone_ = 0.5f;
+    float hp_coef_ = 0.1f;
+    float lp_coef_ = 0.3f;
+    float hp_state_ = 0.0f;
+    float lp_state_ = 0.0f;
+    float gain_ = 1.0f;
+    float blend_ = 0.35f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -64,9 +112,17 @@ public:
         boost_.setParams(gain_db);
     }
 
+    void setOverdrive(bool enabled, float drive, float tone) {
+        overdrive_.enabled = enabled;
+        overdrive_.setParams(drive, tone);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
+        }
+        if (overdrive_.enabled) {
+            in = overdrive_.process(in);
         }
         return in;
     }
@@ -74,6 +130,7 @@ public:
 private:
     float fs_ = 44100.0f;
     BoostPedal boost_;
+    OverdrivePedal overdrive_;
 };
 
 } // namespace gte

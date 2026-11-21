@@ -22,6 +22,7 @@ public class PedalBox extends VBox {
 
   private final BooleanProperty enabled = new SimpleBooleanProperty(false);
   private final Circle led = new Circle(6);
+  private final HBox knobRow = new HBox(6);
   private final String title;
 
   public PedalBox(String title) {
@@ -42,19 +43,19 @@ public class PedalBox extends VBox {
     HBox plateRow = new HBox(plate);
     plateRow.setAlignment(Pos.CENTER);
 
-    getChildren().addAll(ledRow, plateRow);
+    getChildren().addAll(ledRow, plateRow, knobRow);
 
     enabled.addListener((o, ov, on) -> led.setFill(on.booleanValue() ? LED_ON : LED_OFF));
   }
 
-  /** Adds one knob slot (small rotary + caption) to the tile. */
+  /** Adds one knob slot (small rotary + caption) to the tile's knob row. */
   public void addKnob(Knob knob, String caption) {
     Label cap = new Label(caption);
     cap.getStyleClass().add("knob-label");
     VBox slot = new VBox(knob, cap);
     slot.setAlignment(Pos.TOP_CENTER);
     slot.setSpacing(2);
-    getChildren().add(slot);
+    knobRow.getChildren().add(slot);
   }
 
   public BooleanProperty enabledProperty() {

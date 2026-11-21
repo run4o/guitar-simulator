@@ -66,4 +66,47 @@ class Phase6PedalTest {
         assertTrue(Math.abs(boostedCrest - cleanCrest) < 0.15f,
                 "boost must not change the waveform shape: crest " + cleanCrest + " vs " + boostedCrest);
     }
+
+    /* ---- overdrive --------------------------------------------------- */
+
+    /** Same fixture with overdrive params (amp section neutral). */
+    private WavAnalysis.Wav renderOd(boolean enabled, float drive, float tone) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f));
+        Path wav = tempDir.resolve("od-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setOverdrive(enabled, drive, tone);
+            assertTrue(engine.renderSequenceToWav(wav, 2.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedOverdriveLeavesTheSignalUntouched() throws Exception {
+        // both renders bypassed: knob positions must not leak into the signal
+        WavAnalysis.Wav knobsUp = renderOd(false, 0.8f, 0.8f);
+        WavAnalysis.Wav knobsZero = renderOd(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(knobsZero, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed overdrive must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void overdriveAddsSustainedGrit() throws Exception {
+        WavAnalysis.Wav clean = renderOd(false, 0f, 0f);
+        WavAnalysis.Wav driven = renderOd(true, 0.8f, 0.5f);
+        float cleanLate = WavAnalysis.rms(clean, 0.15, 0.28);
+        float drivenLate = WavAnalysis.rms(driven, 0.15, 0.28);
+        // clipping fattens the decaying note: more energy late in the envelope
+        assertTrue(drivenLate > 1.5f * cleanLate,
+                "overdrive must fatten the decay: clean=" + cleanLate + " driven=" + drivenLate);
+        // and it must change the waveform shape (clip): crest factor drops
+        float cleanCrest = WavAnalysis.peak(clean, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        float drivenCrest = WavAnalysis.peak(driven, 0.05, 0.25) / WavAnalysis.rms(driven, 0.05, 0.25);
+        assertTrue(drivenCrest < cleanCrest * 0.9f,
+                "overdrive must clip the peaks: crest " + cleanCrest + " -> " + drivenCrest);
+    }
 }

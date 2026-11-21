@@ -43,6 +43,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle renderSequenceFn;
   private final MethodHandle setFxFn;
   private final MethodHandle setBoostFn;
+  private final MethodHandle setOverdriveFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -85,6 +86,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
       setBoostFn = linker.downcallHandle(symbols.find("guitar_engine_set_boost").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
+      setOverdriveFn = linker.downcallHandle(symbols.find("guitar_engine_set_overdrive").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -361,6 +364,18 @@ public final class GuitarEngine implements AutoCloseable {
       setBoostFn.invokeExact(enabled, gainDb);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_boost failed", t);
+    }
+  }
+
+  /**
+   * Overdrive pedal: warm soft-clipping grit (drive 0..1, tone 0..1), after
+   * any boost, before the amp FX, on both real-time and offline-render paths.
+   */
+  public void setOverdrive(boolean enabled, float drive, float tone) {
+    try {
+      setOverdriveFn.invokeExact(enabled, drive, tone);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_overdrive failed", t);
     }
   }
 
