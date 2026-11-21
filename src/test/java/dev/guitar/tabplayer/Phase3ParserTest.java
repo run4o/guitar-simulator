@@ -260,12 +260,16 @@ class Phase3ParserTest {
     }
 
     @Test
-    void vibratoAndHarmonicsAreTolerated() {
-        TabParser.TabTimeline timeline = TabParser.compile("e|--3~5--(7)--|\n");
+    void vibratoEmitsVibratoCommand() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--3~~5--(7)--|\n");
         List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
-        // 3, 5, and 7 all plucked; vibrato/harmonic tolerated with warnings
+        // 3, 5, and 7 all plucked; harmonics tolerated with a warning
         assertEquals(3, plucks.size());
-        assertTrue(timeline.warnings().stream().anyMatch(w -> w.contains("Vibrato")));
+        // the ~ applies to the ringing fret-3 note: vibrato commands, no warning
+        List<RenderCommand> vibratos = ofType(timeline, GuitarEngine.EVENT_VIBRATO);
+        assertEquals(2, vibratos.size());
+        assertEquals(5, vibratos.get(0).stringIndex());
+        assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("Vibrato")));
         assertTrue(timeline.warnings().stream().anyMatch(w -> w.contains("Harmonics")));
     }
 

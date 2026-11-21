@@ -137,6 +137,7 @@ public final class GpImport {
     double bendSemitones; // 0 = none
     boolean palmMute;
     boolean tap;
+    boolean vibrato;
     double velocity;      // 0 = default pluck strength; else ghost/accent/dynamic
     int trillFret = -1;   // trill alternation fret (-1 = none)
     double trillStep;     // trill note length in quarters
@@ -764,6 +765,9 @@ public final class GpImport {
       if (flags2 != 0 && (flags2 & 0x02) != 0) {
         note.palmMute = true;
       }
+      if (flags2 != 0 && (flags2 & 0x40) != 0) {
+        note.vibrato = true;
+      }
     }
 
     /** @return the bend's maximum semitones (raw bend values are 25 per semitone) */
@@ -1071,6 +1075,13 @@ public final class GpImport {
               cells[s][c] = glyph.charAt(0);
             }
             last = Math.max(last, fillEnd);
+          }
+
+          // vibrato marker right after the note's ring (fill or glyph): it
+          // applies to the sounding note until the string's next articulation
+          if (note.vibrato && !dead && last + 1 < cells[s].length) {
+            cells[s][last + 1] = '~';
+            last = last + 1;
           }
 
           // palm-mute region markers around runs of muted notes: the opener

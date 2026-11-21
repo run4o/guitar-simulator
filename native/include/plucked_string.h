@@ -77,6 +77,15 @@ public:
         slew_to(delay_, 0.0f); // stop any glide in progress
     }
 
+    /* Pitch vibrato: a 5.5 Hz LFO on the loop delay while the note rings.
+     * Ramps in over ~120 ms so the attack stays clean; any new articulation
+     * on the string clears it. */
+    void set_vibrato(bool on) {
+        vibrato_on_ = on;
+        vibrato_phase_ = 0.0f;
+        vibrato_env_ = 0.0f;
+    }
+
     /* Guitar simulations: 0 = acoustic (current behavior), 1 = electric single
      * coil, 2 = electric humbucker. Switching re-voices the string and changes
      * the output from the full string decay to magnetic-pickup tap sums. */
@@ -117,8 +126,24 @@ public:
             delay_ = std::max(delay_ - slew_per_sample_, target_delay_);
         }
 
-        int n = static_cast<int>(delay_);
-        float frac = delay_ - static_cast<float>(n);
+        // vibrato LFO: small oscillating offset on the loop delay
+        float vibrato_offset = 0.0f;
+        if (vibrato_on_) {
+            if (vibrato_env_ < 1.0f) {
+                vibrato_env_ = std::min(1.0f, vibrato_env_ + 1.0f / (kVibratoRampSeconds * fs_));
+            }
+            vibrato_phase_ += kVibratoRateHz / fs_;
+            if (vibrato_phase_ >= 1.0f) {
+                vibrato_phase_ -= 1.0f;
+            }
+            // delay/f relationship: ddelay/ddelay = -(2^(s/12)-1) ~= -0.0578*s
+            vibrato_offset = -delay_ * 0.0578f * kVibratoSemitones * vibrato_env_
+                * std::sin(6.2831853f * vibrato_phase_);
+        }
+        const float effective_delay = std::max(4.0f, delay_ + vibrato_offset);
+
+        int n = static_cast<int>(effective_delay);
+        float frac = effective_delay - static_cast<float>(n);
         float c = (1.0f - frac) / (1.0f + frac); // allpass coefficient = (1-d)/(1+d)
         // Keep the allpass pole (z = -c) strictly inside the unit circle: at
         // frac -> 0 the pole reaches -1 and the filter's internal state rings
@@ -172,6 +197,9 @@ private:
     static constexpr float kLegatoSlewSeconds = 0.008f;
     static constexpr float kBendSlewSeconds = 0.18f;
     static constexpr float kExciteSmooth = 0.4f; // acoustic pick burst low-pass
+    static constexpr float kVibratoRateHz = 5.5f;
+    static constexpr float kVibratoSemitones = 0.4f;
+    static constexpr float kVibratoRampSeconds = 0.12f;
 
     static int wrap(int i) { return i & (kBufferSamples - 1); }
 
@@ -253,6 +281,9 @@ private:
     float cutoff_current_ = kNormalCutoff;
     float dc_prev_ = 0.0f;
     float dc_state_ = 0.0f;
+    bool vibrato_on_ = false;
+    float vibrato_phase_ = 0.0f;
+    float vibrato_env_ = 0.0f;
     uint32_t rng_ = 1;
 };
 

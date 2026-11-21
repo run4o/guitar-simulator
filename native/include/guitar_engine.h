@@ -31,7 +31,8 @@ enum {
     GTE_EVENT_BEND       = 2,
     GTE_EVENT_MUTE       = 3,
     GTE_EVENT_SET_TUNING = 4,
-    GTE_EVENT_SET_MODEL  = 5   /* fret field = guitar model (0=acoustic, 1=single, 2=humbucker) */
+    GTE_EVENT_SET_MODEL  = 5,  /* fret field = guitar model (0=acoustic, 1=single, 2=humbucker) */
+    GTE_EVENT_VIBRATO    = 6   /* a != 0: vibrato on for this string until its next articulation */
 };
 
 /* One timed synthesis command, used by the offline render API. */

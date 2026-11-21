@@ -103,10 +103,10 @@ class GpImportTest {
 
   @Test
   void importsArticulations() throws IOException {
-    // 9 bars: hammer origin, bend +4, palm mute, tap, ghost, accent, trill,
-    // tremolo picking, grace note
+    // 10 bars: hammer origin, bend +4, palm mute, tap, ghost, accent, trill,
+    // tremolo picking, grace note, vibrato
     Path file = tempDir.resolve("articulations.gp5");
-    Files.write(file, gp5Fixture(9, 0, null, 4, 4, true));
+    Files.write(file, gp5Fixture(10, 0, null, 4, 4, true));
     String ascii = GpImport.importFile(file).ascii();
 
     // bar 1: hammer origin -> 'h' before the fret-5 target
@@ -127,6 +127,9 @@ class GpImportTest {
     assertTrue(ascii.contains("T 55555555"), "tremolo run missing:\n" + ascii);
     // bar 9: grace note fret 2 two columns before the fret-5 main note
     assertTrue(ascii.contains("g 2 5"), "grace note missing:\n" + ascii);
+    // bar 10: vibrato marker at the end of the fret-3 sustain
+    assertTrue(ascii.contains("3~ 5") || ascii.contains("3~5"),
+        "vibrato marker missing:\n" + ascii);
 
     // compiled: legato (hammer + tap + trill), bend with relative semitones,
     // a palm-muted pluck, velocity-strength plucks, and tremolo/trill/grace
@@ -155,6 +158,9 @@ class GpImportTest {
     assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.fret() == 2
             && Math.abs(c.a() - 0.45f) < 0.01f),
         "grace note must pluck the grace fret at reduced strength");
+    // vibrato: a vibrato command on the high e string
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 6 && c.stringIndex() == 5),
+        "vibrato marker must compile to a VIBRATO command");
     assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("out of range")));
   }
 
@@ -295,14 +301,14 @@ class GpImportTest {
 
     // bar 0, track 0: GP5 voice header + 2 voices
     if (withArticulations) {
-      // nine bars, one half-note each on the high e string; beat 1 carries a
-      // per-bar articulation origin (hammer, bend, trill), beat 2 carries
-      // palm mute, tap, ghost, accent, tremolo and grace
-      for (int i = 0; i < 9; i++) {
+      // ten bars, one half-note each on the high e string; beat 1 carries a
+      // per-bar articulation origin (hammer, bend, trill, vibrato), beat 2
+      // carries palm mute, tap, ghost, accent, tremolo and grace
+      for (int i = 0; i < 10; i++) {
         d.writeByte(0); // voice header
         writeIntLE(d, 2); // beats
         // beat 1: half note, fret 3, carrying the hammer/bend articulation
-        boolean beat1Effects = i <= 1 || i == 6;
+        boolean beat1Effects = i <= 1 || i == 6 || i == 9;
         d.writeByte(0x00); // beat flags
         d.writeByte(-1); // duration: half
         d.writeByte(0x40); // string flags: high e
@@ -330,6 +336,10 @@ class GpImportTest {
           d.writeByte(0x20);
           d.writeByte(7); // trill fret
           d.writeByte(2); // speed
+        } else if (i == 9) {
+          // vibrato: effFlags2 0x40
+          d.writeByte(0x00);
+          d.writeByte(0x40);
         }
         writeShortLE(d, 0); // beat flags2
         // beat 2: half note, fret 5, with the bar's palm mute / tap / tremolo / grace

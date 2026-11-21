@@ -638,10 +638,11 @@ public final class TabParser {
         case DEAD -> add(byColumn, token.column(),
             new TabEvent(new RenderCommand((float) time, RenderCommandType.MUTE, track.stringIndex, 0, 0.0f, 0.0f),
                 charPos));
-        case VIBRATO, HARMONIC, BAR -> {
-          if (token.kind() == Kind.VIBRATO) {
-            warnings.add("Vibrato (~) is not supported yet and is ignored");
-          } else if (token.kind() == Kind.HARMONIC) {
+        case VIBRATO -> add(byColumn, token.column(), new TabEvent(
+            new RenderCommand((float) time, RenderCommandType.VIBRATO, track.stringIndex, 0,
+                1.0f, 0.0f), charPos));
+        case HARMONIC, BAR -> {
+          if (token.kind() == Kind.HARMONIC) {
             warnings.add("Harmonics are rendered as normal notes for now");
           }
         }
@@ -661,5 +662,6 @@ public final class TabParser {
     static final int LEGATO = 1;
     static final int BEND = 2;
     static final int MUTE = 3;
+    static final int VIBRATO = 6;
   }
 }
