@@ -103,9 +103,10 @@ class GpImportTest {
 
   @Test
   void importsArticulations() throws IOException {
-    // 6 bars: hammer origin, bend +4, palm mute, tap, ghost, accent
+    // 9 bars: hammer origin, bend +4, palm mute, tap, ghost, accent, trill,
+    // tremolo picking, grace note
     Path file = tempDir.resolve("articulations.gp5");
-    Files.write(file, gp5Fixture(6, 0, null, 4, 4, true));
+    Files.write(file, gp5Fixture(9, 0, null, 4, 4, true));
     String ascii = GpImport.importFile(file).ascii();
 
     // bar 1: hammer origin -> 'h' before the fret-5 target
@@ -119,9 +120,17 @@ class GpImportTest {
     // bar 5: ghost note marker, bar 6: accent marker
     assertTrue(ascii.contains("g 5"), "ghost marker missing:\n" + ascii);
     assertTrue(ascii.contains("* 5"), "accent marker missing:\n" + ascii);
+    // bar 7: trill alternation between frets 3 and 7 (hammer up, pull down)
+    assertTrue(ascii.contains("3h 7p 3") || ascii.contains("3p 7h 3"),
+        "trill alternation missing:\n" + ascii);
+    // bar 8: tremolo picking marker before the fret-5 run
+    assertTrue(ascii.contains("T 55555555"), "tremolo run missing:\n" + ascii);
+    // bar 9: grace note fret 2 two columns before the fret-5 main note
+    assertTrue(ascii.contains("g 2 5"), "grace note missing:\n" + ascii);
 
-    // compiled: legato (hammer + tap), bend with relative semitones, a
-    // palm-muted pluck, and velocity-strength plucks
+    // compiled: legato (hammer + tap + trill), bend with relative semitones,
+    // a palm-muted pluck, velocity-strength plucks, and tremolo/trill/grace
+    // expansions
     var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, 120);
     var commands = timeline.commands();
     assertTrue(commands.stream().anyMatch(c -> c.type() == 1 && c.stringIndex() == 5 && c.fret() == 5),
@@ -136,6 +145,16 @@ class GpImportTest {
     assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.stringIndex() == 5 && c.fret() == 5
             && Math.abs(c.a() - 1.0f) < 0.01f),
         "accent note must pluck at full strength");
+    // tremolo: the run 55555555 must re-pluck (>= 4 plucks of fret 5)
+    assertTrue(commands.stream().filter(c -> c.type() == 0 && c.fret() == 5).count() >= 4,
+        "tremolo picking must re-pluck the run");
+    // trill: alternating legato frets 3 and 7
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 1 && c.fret() == 7),
+        "trill alternation must produce legato notes on the trill fret");
+    // grace: a quiet pluck of the grace fret just before the main note
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.fret() == 2
+            && Math.abs(c.a() - 0.45f) < 0.01f),
+        "grace note must pluck the grace fret at reduced strength");
     assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("out of range")));
   }
 
@@ -276,14 +295,14 @@ class GpImportTest {
 
     // bar 0, track 0: GP5 voice header + 2 voices
     if (withArticulations) {
-      // six bars, one half-note each on the high e string; beat 1 carries a
-      // per-bar articulation origin (hammer, bend), beat 2 carries palm
-      // mute, tap, ghost and accent
-      for (int i = 0; i < 6; i++) {
+      // nine bars, one half-note each on the high e string; beat 1 carries a
+      // per-bar articulation origin (hammer, bend, trill), beat 2 carries
+      // palm mute, tap, ghost, accent, tremolo and grace
+      for (int i = 0; i < 9; i++) {
         d.writeByte(0); // voice header
         writeIntLE(d, 2); // beats
         // beat 1: half note, fret 3, carrying the hammer/bend articulation
-        boolean beat1Effects = i <= 1;
+        boolean beat1Effects = i <= 1 || i == 6;
         d.writeByte(0x00); // beat flags
         d.writeByte(-1); // duration: half
         d.writeByte(0x40); // string flags: high e
@@ -305,11 +324,18 @@ class GpImportTest {
           writeIntLE(d, 30); // offset
           writeIntLE(d, 100); // value (100 / 25 = 4 semitones)
           d.writeByte(0); // vibrato
+        } else if (i == 6) {
+          // trill to fret 7: effFlags2 0x20 + fret/speed bytes
+          d.writeByte(0x00);
+          d.writeByte(0x20);
+          d.writeByte(7); // trill fret
+          d.writeByte(2); // speed
         }
         writeShortLE(d, 0); // beat flags2
-        // beat 2: half note, fret 5, with the bar's palm mute / tap
+        // beat 2: half note, fret 5, with the bar's palm mute / tap / tremolo / grace
         boolean tap = i == 3;
         boolean palm = i == 2;
+        boolean beat2Effects = palm || i == 7 || i == 8;
         d.writeByte(tap ? 0x08 : 0x00); // beat flags: effects for the tap
         d.writeByte(-1); // duration: half
         if (tap) {
@@ -319,7 +345,7 @@ class GpImportTest {
           d.writeByte(1); // slap = tap
         }
         d.writeByte(0x40); // string flags: high e
-        int noteFlags = palm ? 0x28 : i == 4 ? 0x24 : i == 5 ? 0x22 : 0x20;
+        int noteFlags = beat2Effects ? 0x28 : i == 4 ? 0x24 : i == 5 ? 0x22 : 0x20;
         d.writeByte(noteFlags); // note flags (+ ghost 0x04 / accent 0x02 / effects 0x08)
         d.writeByte(1); // note type: regular
         d.writeByte(5); // fret
@@ -328,6 +354,20 @@ class GpImportTest {
           // palm mute: effFlags2 0x02
           d.writeByte(0x00);
           d.writeByte(0x02);
+        } else if (i == 7) {
+          // tremolo picking: effFlags2 0x04 + speed byte
+          d.writeByte(0x00);
+          d.writeByte(0x04);
+          d.writeByte(2); // speed
+        } else if (i == 8) {
+          // grace note fret 2: effFlags1 0x10 + grace block
+          d.writeByte(0x10);
+          d.writeByte(0x00);
+          d.writeByte(2); // grace fret
+          d.writeByte(6); // grace dynamic
+          d.writeByte(0); // transition
+          d.writeByte(2); // duration
+          d.writeByte(0); // grace flags (GP5)
         }
         writeShortLE(d, 0); // beat flags2
         writeIntLE(d, 0); // second voice: 0 beats

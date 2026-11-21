@@ -138,6 +138,11 @@ public final class GpImport {
     boolean palmMute;
     boolean tap;
     double velocity;      // 0 = default pluck strength; else ghost/accent/dynamic
+    int trillFret = -1;   // trill alternation fret (-1 = none)
+    double trillStep;     // trill note length in quarters
+    boolean tremolo;      // tremolo picking: the run re-plucks per digit
+    int graceFret = -1;   // grace note before the main note (-1 = none)
+    double graceStep;     // grace note length in quarters
     int col;              // placed column (set by the generator)
 
     NoteEvent(int stringIndex, int fret, boolean dead) {
@@ -182,6 +187,7 @@ public final class GpImport {
     private final List<String> warnings = new ArrayList<>();
     private int version;
     private boolean warnedArticulationSkip;
+    private boolean warnedGraceSkip;
     private int bpm = 120;
     private String title = "";
     private String artist = "";
@@ -726,10 +732,11 @@ public final class GpImport {
         note.hammerPull = true; // hammer-on/pull-off origin
       }
       if ((flags & 0x10) != 0) {
-        readGrace();
+        readGrace(note);
       }
       if (flags2 != 0 && (flags2 & 0x04) != 0) {
-        r.u1(); // tremolo picking speed (phase 3: expansion)
+        note.tremolo = true; // tremolo picking: speed byte read below
+        r.u1();
       }
       if (flags2 != 0 && (flags2 & 0x08) != 0) {
         int type = r.s1(); // slide
@@ -749,7 +756,10 @@ public final class GpImport {
         readArtificialHarmonic();
       }
       if (flags2 != 0 && (flags2 & 0x20) != 0) {
-        r.skip(2); // trill fret + speed (phase 3: expansion)
+        int trillFret = r.u1();
+        int speed = r.u1();
+        note.trillFret = trillFret;
+        note.trillStep = effectStepQuarters(speed);
       }
       if (flags2 != 0 && (flags2 & 0x02) != 0) {
         note.palmMute = true;
@@ -772,15 +782,30 @@ public final class GpImport {
       return maxSemitones;
     }
 
-    private void readGrace() {
-      r.s1(); // fret
+    private void readGrace(NoteEvent note) {
+      int fret = r.s1();
       r.s1(); // dynamic
       r.s1(); // transition
-      r.skip(1); // duration
+      int duration = r.u1();
       if (version >= 500) {
         r.u1(); // grace flags
       }
-      warn("grace notes ignored");
+      if (fret >= 0) {
+        note.graceFret = fret;
+        note.graceStep = effectStepQuarters(duration);
+      }
+    }
+
+    /** Duration-value byte (0..4 -> eighth..64th) as quarters, with a 16th fallback. */
+    private double effectStepQuarters(int speed) {
+      return switch (speed) {
+        case 0 -> 0.5;
+        case 1 -> 0.25;
+        case 2 -> 0.125;
+        case 3 -> 0.0625;
+        case 4 -> 0.03125;
+        default -> 0.25;
+      };
     }
 
     private void readArtificialHarmonic() {
@@ -935,11 +960,54 @@ public final class GpImport {
       double pos = 0;
       for (Beat beat : beats) {
         double quarters = durationQuarters(beat);
-        int col = (int) Math.round(pos * scale);
         for (NoteEvent note : beat.notes) {
-          if (note.stringIndex >= 0 && note.stringIndex <= 5) {
-            note.col = col;
-            byString[note.stringIndex].add(note);
+          if (note.stringIndex < 0 || note.stringIndex > 5) {
+            continue;
+          }
+          List<NoteEvent> line = byString[note.stringIndex];
+          if (note.trillFret >= 0 && note.trillFret != note.fret) {
+            // hammer/pull alternation trill: digits separated by h/p markers,
+            // one empty column between pairs (grid-quantized speed)
+            int base = (int) Math.round(pos * scale);
+            int span = (int) Math.round(quarters * scale);
+            List<NoteEvent> trillNotes = new ArrayList<>();
+            int cur = base;
+            int k = 0;
+            while (cur < base + span) {
+              int fret = k % 2 == 0 ? note.fret : note.trillFret;
+              int len = Integer.toString(fret).length();
+              if (cur + len > base + span) {
+                break;
+              }
+              NoteEvent t = new NoteEvent(note.stringIndex, fret, false);
+              t.col = cur;
+              t.hammerPull = true; // corrected for the last one below
+              t.velocity = note.velocity;
+              trillNotes.add(t);
+              cur += len + 2; // marker column + one empty separator
+              k++;
+            }
+            if (!trillNotes.isEmpty()) {
+              trillNotes.get(trillNotes.size() - 1).hammerPull = false;
+              line.addAll(trillNotes);
+            }
+          } else {
+            if (note.graceFret >= 0) {
+              // ornamental pre-note two columns before the main note (its own
+              // ghost marker occupies the gap), stealing no time
+              int graceCol = note.col - (Integer.toString(note.graceFret).length() + 1);
+              if (graceCol >= 0) {
+                NoteEvent g = new NoteEvent(note.stringIndex, note.graceFret, false);
+                g.col = graceCol;
+                g.velocity = 0.45;
+                line.add(g);
+              } else if (!warnedGraceSkip) {
+                warnedGraceSkip = true;
+                warn("grace note omitted (no room before the beat)");
+              }
+            }
+            note.col = (int) Math.round(pos * scale);
+            line.add(note);
           }
         }
         pos += quarters;
@@ -955,10 +1023,10 @@ public final class GpImport {
           boolean dead = note.dead;
           String glyph = dead ? "x" : Integer.toString(note.fret);
           int start = prevEnd >= 0 ? Math.max(note.col, prevEnd + 1) : Math.max(note.col, 0);
-          // pre-note markers: velocity (g/*) or tap, 1 char + one separating
-          // column; velocity wins when both are present
+          // pre-note markers: velocity (g/*), tremolo (T) or tap (t), 1 char
+          // + one separating column; velocity wins when several are present
           char pre = note.velocity != 0.0 ? (note.velocity < 0.9 ? 'g' : '*')
-              : note.tap ? 't' : 0;
+              : note.tremolo ? 'T' : note.tap ? 't' : 0;
           if (pre != 0 && start - (prevEnd + 1) >= 2 && start >= 2) {
             cells[s][start - 2] = pre;
           }
@@ -981,6 +1049,9 @@ public final class GpImport {
           }
           if (token != null && next != null) {
             int tokenStart = next.col - 1 - token.length();
+            if (tokenStart <= last) {
+              tokenStart = next.col - token.length(); // adjacent fallback (no separating space)
+            }
             if (tokenStart > last) {
               for (int c = tokenStart; c < tokenStart + token.length() && c < cells[s].length; c++) {
                 cells[s][c] = token.charAt(c - tokenStart);
@@ -992,9 +1063,9 @@ public final class GpImport {
             }
           } else if (!dead && glyph.length() == 1 && !note.palmMute) {
             // sustain fill: repeat the digit across the note's duration,
-            // reserving room for the next note's velocity/tap/PM markers
+            // reserving room for the next note's velocity/tremolo/tap/PM markers
             int reserve = next != null
-                && (next.tap || next.palmMute || next.velocity != 0.0) ? 4 : 2;
+                && (next.tap || next.palmMute || next.velocity != 0.0 || next.tremolo) ? 4 : 2;
             int fillEnd = next != null ? Math.min(next.col - reserve, cols - 1) : cols - 1;
             for (int c = start + 1; c <= fillEnd; c++) {
               cells[s][c] = glyph.charAt(0);

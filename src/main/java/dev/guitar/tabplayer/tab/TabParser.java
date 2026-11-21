@@ -390,6 +390,7 @@ public final class TabParser {
     int n = content.length();
     int i = 0;
     int palmMuteStart = -1;
+    boolean tremoloPending = false;
     while (i < n) {
       char c = content.charAt(i);
       if (c >= '0' && c <= '9') {
@@ -418,7 +419,16 @@ public final class TabParser {
             fret = MAX_FRET;
           }
         }
-        track.tokens.add(new Token(i, Kind.NOTE, fret));
+        if (tremoloPending && sameDigit) {
+          // tremolo picking: the run re-plucks once per digit instead of
+          // holding a single sustain
+          for (int k = i; k < j; k++) {
+            track.tokens.add(new Token(k, Kind.NOTE, fret));
+          }
+          tremoloPending = false;
+        } else {
+          track.tokens.add(new Token(i, Kind.NOTE, fret));
+        }
         i = j;
       } else if (c == 'b') {
         int target = readImmediateNumber(content, i + 1);
@@ -454,6 +464,10 @@ public final class TabParser {
       } else if (c == '*') {
         // accent: next note plucks at full strength
         track.tokens.add(new Token(i, Kind.ACCENT, -1));
+        i++;
+      } else if (c == 'T') {
+        // tremolo picking: the next run of same digits re-plucks per digit
+        tremoloPending = true;
         i++;
       } else if (c == '~') {
         track.tokens.add(new Token(i, Kind.VIBRATO, -1));
