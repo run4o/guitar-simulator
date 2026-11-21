@@ -275,4 +275,77 @@ class Phase6PedalTest {
         assertTrue(ratio > 2.5f && ratio < 6.5f,
                 "mix must scale the echo level (~4.5x from 0.2 to 0.9): " + ratio);
     }
+
+    /* ---- chorus --------------------------------------------------------- */
+
+    /** Same fixture with chorus params (amp section neutral). */
+    private WavAnalysis.Wav renderChorus(boolean enabled, float rate, float depth, float mix)
+            throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f));
+        Path wav = tempDir.resolve("chorus-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setChorus(enabled, rate, depth, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedChorusLeavesTheSignalUntouched() throws Exception {
+        // both renders bypassed: knob positions must not leak into the signal
+        WavAnalysis.Wav knobsUp = renderChorus(false, 0.9f, 0.9f, 0.9f);
+        WavAnalysis.Wav clean = renderChorus(false, 0f, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed chorus must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void chorusSpreadsModulationSidebands() throws Exception {
+        // the pitch-wobbling copy phase-modulates the note: energy spreads
+        // to f0 ± k*rate (rate knob 1.0 -> 4 Hz). The 15 ms depth is deep
+        // modulation, so the energy fans out over many sidebands - sum them.
+        WavAnalysis.Wav clean = renderChorus(false, 0f, 0f, 0f);
+        WavAnalysis.Wav thick = renderChorus(true, 1.0f, 0.9f, 1.0f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.02, 0.15);
+        assertTrue(f0 > 100, "fixture must have a pitch: " + f0);
+        float cleanSb = 0;
+        float thickSb = 0;
+        for (int k = 1; k <= 12; k++) {
+            cleanSb += WavAnalysis.toneMagnitude(clean, 0.05, 0.30, f0 + k * 4.0);
+            thickSb += WavAnalysis.toneMagnitude(thick, 0.05, 0.30, f0 + k * 4.0);
+        }
+        assertTrue(thickSb > 3.0f * cleanSb,
+                "chorus must create modulation sidebands: clean=" + cleanSb
+                        + " chorus=" + thickSb);
+    }
+
+    @Test
+    void chorusMixScalesTheWetCopy() throws Exception {
+        // summed sideband energy scales with the wet copy's amplitude; the
+        // f0 grid comes from a clean render (autocorrelation on the
+        // modulated signal can wander)
+        WavAnalysis.Wav clean = renderChorus(false, 0f, 0f, 0f);
+        WavAnalysis.Wav quiet = renderChorus(true, 1.0f, 0.9f, 0.2f);
+        WavAnalysis.Wav loud = renderChorus(true, 1.0f, 0.9f, 0.9f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.02, 0.15);
+        // the decaying dry note leaks into every bin; subtract the clean
+        // baseline so only the wet copy's sidebands are compared
+        float low = 0;
+        float high = 0;
+        for (int k = 1; k <= 12; k++) {
+            low += WavAnalysis.toneMagnitude(quiet, 0.05, 0.30, f0 + k * 4.0)
+                    - WavAnalysis.toneMagnitude(clean, 0.05, 0.30, f0 + k * 4.0);
+            high += WavAnalysis.toneMagnitude(loud, 0.05, 0.30, f0 + k * 4.0)
+                    - WavAnalysis.toneMagnitude(clean, 0.05, 0.30, f0 + k * 4.0);
+        }
+        float ratio = high / low;
+        // the wet copy scales the sidebands (in-band ratio shifts with the
+        // deep-modulation leakage), so assert direction and strong growth
+        assertTrue(ratio > 1.5f && ratio < 15.0f,
+                "mix must scale the wobble copy: " + ratio);
+    }
 }

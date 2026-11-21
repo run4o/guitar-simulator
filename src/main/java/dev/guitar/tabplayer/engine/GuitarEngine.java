@@ -47,6 +47,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setDistortionFn;
   private final MethodHandle setFuzzFn;
   private final MethodHandle setDelayFn;
+  private final MethodHandle setChorusFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -96,6 +97,8 @@ public final class GuitarEngine implements AutoCloseable {
       setFuzzFn = linker.downcallHandle(symbols.find("guitar_engine_set_fuzz").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setDelayFn = linker.downcallHandle(symbols.find("guitar_engine_set_delay").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
+      setChorusFn = linker.downcallHandle(symbols.find("guitar_engine_set_chorus").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
@@ -422,6 +425,18 @@ public final class GuitarEngine implements AutoCloseable {
       setDelayFn.invokeExact(enabled, time, feedback, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_delay failed", t);
+    }
+  }
+
+  /**
+   * Chorus pedal: unison-wobble copy (rate/depth normalized 0..1,
+   * mix 0..1), after the delay, on both real-time and offline paths.
+   */
+  public void setChorus(boolean enabled, float rate, float depth, float mix) {
+    try {
+      setChorusFn.invokeExact(enabled, rate, depth, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_chorus failed", t);
     }
   }
 

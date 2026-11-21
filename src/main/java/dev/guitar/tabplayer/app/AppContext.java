@@ -51,6 +51,10 @@ public final class AppContext {
   private final DoubleProperty delayFeedback = new SimpleDoubleProperty(0.4);
   private final DoubleProperty delayMix = new SimpleDoubleProperty(0.5);
   private final BooleanProperty delayEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty chorusRate = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty chorusDepth = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty chorusMix = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty chorusEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -65,7 +69,8 @@ public final class AppContext {
     for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
         distDrive, distTone, distLevel, distEnabled,
         fuzzAmount, fuzzVolume, fuzzEnabled,
-        delayTime, delayFeedback, delayMix, delayEnabled}) {
+        delayTime, delayFeedback, delayMix, delayEnabled,
+        chorusRate, chorusDepth, chorusMix, chorusEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -204,6 +209,22 @@ public final class AppContext {
     return delayEnabled;
   }
 
+  public DoubleProperty chorusRateProperty() {
+    return chorusRate;
+  }
+
+  public DoubleProperty chorusDepthProperty() {
+    return chorusDepth;
+  }
+
+  public DoubleProperty chorusMixProperty() {
+    return chorusMix;
+  }
+
+  public BooleanProperty chorusEnabledProperty() {
+    return chorusEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -239,6 +260,10 @@ public final class AppContext {
     state.put("delay.time", Double.toString(delayTime.get()));
     state.put("delay.feedback", Double.toString(delayFeedback.get()));
     state.put("delay.mix", Double.toString(delayMix.get()));
+    state.put("chorus.enabled", Boolean.toString(chorusEnabled.get()));
+    state.put("chorus.rate", Double.toString(chorusRate.get()));
+    state.put("chorus.depth", Double.toString(chorusDepth.get()));
+    state.put("chorus.mix", Double.toString(chorusMix.get()));
     return state;
   }
 
@@ -260,6 +285,10 @@ public final class AppContext {
     delayTime.set(clamp(parse(state.getOrDefault("delay.time", "0.3")), 0.02, 1.0));
     delayFeedback.set(clamp(parse(state.getOrDefault("delay.feedback", "0.4")), 0, 0.9));
     delayMix.set(clamp(parse(state.getOrDefault("delay.mix", "0.5")), 0, 1));
+    chorusEnabled.set(Boolean.parseBoolean(state.getOrDefault("chorus.enabled", "false")));
+    chorusRate.set(clamp(parse(state.getOrDefault("chorus.rate", "0.5")), 0, 1));
+    chorusDepth.set(clamp(parse(state.getOrDefault("chorus.depth", "0.5")), 0, 1));
+    chorusMix.set(clamp(parse(state.getOrDefault("chorus.mix", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -293,6 +322,8 @@ public final class AppContext {
         (float) distTone.get(), (float) distLevel.get());
     engine.setDelay(delayEnabled.get(), (float) delayTime.get(),
         (float) delayFeedback.get(), (float) delayMix.get());
+    engine.setChorus(chorusEnabled.get(), (float) chorusRate.get(),
+        (float) chorusDepth.get(), (float) chorusMix.get());
   }
 
   public void applyTuning(Tuning tuning) {

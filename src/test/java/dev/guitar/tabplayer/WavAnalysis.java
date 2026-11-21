@@ -74,6 +74,26 @@ public final class WavAnalysis {
         return (float) Math.sqrt(sum / n);
     }
 
+    /**
+     * Goertzel magnitude at one frequency over a window. Used to detect
+     * modulation sidebands (the delayed, pitch-wobbling copy of a chorus
+     * spreads energy to f0 ± k*rate around the note).
+     */
+    public static float toneMagnitude(Wav wav, double fromSec, double toSec, double freqHz) {
+        int from = clampIndex(wav, fromSec);
+        int to = clampIndex(wav, toSec);
+        int n = Math.max(1, to - from);
+        double k = 2.0 * Math.PI * freqHz / wav.sampleRate();
+        double re = 0;
+        double im = 0;
+        for (int i = from; i < to; i++) {
+            double v = wav.samples()[i];
+            re += v * Math.cos(k * i);
+            im -= v * Math.sin(k * i);
+        }
+        return (float) (Math.sqrt(re * re + im * im) / n);
+    }
+
     public static float peak(Wav wav, double fromSec, double toSec) {
         int from = clampIndex(wav, fromSec);
         int to = clampIndex(wav, toSec);

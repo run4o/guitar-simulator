@@ -120,6 +120,10 @@ struct PedalParams {
     std::atomic<float> delay_time{0.3f};      // seconds, 0.02..1.0
     std::atomic<float> delay_feedback{0.4f};
     std::atomic<float> delay_mix{0.5f};
+    std::atomic<bool> chorus_enabled{false};
+    std::atomic<float> chorus_rate{0.5f};
+    std::atomic<float> chorus_depth{0.5f};
+    std::atomic<float> chorus_mix{0.5f};
 };
 PedalParams g_pedals;
 
@@ -217,7 +221,7 @@ void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
     }
 }
 
-void sync_pedal_params(gte::PedalChain& chain, float cached[16]) {
+void sync_pedal_params(gte::PedalChain& chain, float cached[20]) {
     const float boostOn = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     const float boostGain = g_pedals.boost_gain.load(std::memory_order_relaxed);
     const float fuzzOn = g_pedals.fuzz_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
@@ -234,17 +238,24 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[16]) {
     const float delayTime = g_pedals.delay_time.load(std::memory_order_relaxed);
     const float delayFb = g_pedals.delay_feedback.load(std::memory_order_relaxed);
     const float delayMix = g_pedals.delay_mix.load(std::memory_order_relaxed);
+    const float chorusOn = g_pedals.chorus_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float chorusRate = g_pedals.chorus_rate.load(std::memory_order_relaxed);
+    const float chorusDepth = g_pedals.chorus_depth.load(std::memory_order_relaxed);
+    const float chorusMix = g_pedals.chorus_mix.load(std::memory_order_relaxed);
     if (boostOn != cached[0] || boostGain != cached[1] || fuzzOn != cached[2]
         || fuzzAmt != cached[3] || fuzzVol != cached[4] || odOn != cached[5]
         || odDrive != cached[6] || odTone != cached[7] || distOn != cached[8]
         || distDrive != cached[9] || distTone != cached[10] || distLevel != cached[11]
         || delayOn != cached[12] || delayTime != cached[13]
-        || delayFb != cached[14] || delayMix != cached[15]) {
+        || delayFb != cached[14] || delayMix != cached[15]
+        || chorusOn != cached[16] || chorusRate != cached[17]
+        || chorusDepth != cached[18] || chorusMix != cached[19]) {
         chain.setBoost(boostOn > 0.5f, boostGain);
         chain.setFuzz(fuzzOn > 0.5f, fuzzAmt, fuzzVol);
         chain.setOverdrive(odOn > 0.5f, odDrive, odTone);
         chain.setDistortion(distOn > 0.5f, distDrive, distTone, distLevel);
         chain.setDelay(delayOn > 0.5f, delayTime, delayFb, delayMix);
+        chain.setChorus(chorusOn > 0.5f, chorusRate, chorusDepth, chorusMix);
         cached[0] = boostOn;
         cached[1] = boostGain;
         cached[2] = fuzzOn;
@@ -261,6 +272,10 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[16]) {
         cached[13] = delayTime;
         cached[14] = delayFb;
         cached[15] = delayMix;
+        cached[16] = chorusOn;
+        cached[17] = chorusRate;
+        cached[18] = chorusDepth;
+        cached[19] = chorusMix;
     }
 }
 
@@ -275,8 +290,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
     sync_fx_params(s.fx_l, fx_cached_l);
     sync_fx_params(s.fx_r, fx_cached_r);
-    static thread_local float pedal_cached_l[16] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
-    static thread_local float pedal_cached_r[16] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_l[20] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_r[20] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
     sync_pedal_params(s.pedals_l, pedal_cached_l);
     sync_pedal_params(s.pedals_r, pedal_cached_r);
 
@@ -475,6 +490,15 @@ GTE_EXPORT void guitar_engine_set_delay(bool enabled, float time, float feedback
     g_pedals.delay_mix.store(std::clamp(mix, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
+/* Pedalboard: unison-wobble chorus (rate/depth normalized 0..1, mix 0..1),
+ * after the delay. */
+GTE_EXPORT void guitar_engine_set_chorus(bool enabled, float rate, float depth, float mix) {
+    g_pedals.chorus_enabled.store(enabled, std::memory_order_relaxed);
+    g_pedals.chorus_rate.store(std::clamp(rate, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.chorus_depth.store(std::clamp(depth, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.chorus_mix.store(std::clamp(mix, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -518,7 +542,7 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
     gte::PedalChain pedals;
     pedals.prepare(fs);
     {
-        float cached[16] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+        float cached[20] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
         sync_pedal_params(pedals, cached);
     }
 

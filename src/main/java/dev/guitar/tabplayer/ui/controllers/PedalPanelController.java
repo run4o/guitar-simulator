@@ -77,5 +77,19 @@ public class PedalPanelController {
     delayFb.valueProperty().bindBidirectional(ctx.delayFeedbackProperty());
     delayMix.valueProperty().bindBidirectional(ctx.delayMixProperty());
     pedalRow.getChildren().add(delay);
+
+    // CHORUS: unison-wobble thickening
+    Knob chorusRate = new Knob(0, 1, 0.5, 44);
+    Knob chorusDepth = new Knob(0, 1, 0.5, 44);
+    Knob chorusMix = new Knob(0, 1, 0.5, 44);
+    PedalBox chorus = new PedalBox("CHORUS");
+    chorus.addKnob(chorusRate, "RATE");
+    chorus.addKnob(chorusDepth, "DEPTH");
+    chorus.addKnob(chorusMix, "MIX");
+    chorus.enabledProperty().bindBidirectional(ctx.chorusEnabledProperty());
+    chorusRate.valueProperty().bindBidirectional(ctx.chorusRateProperty());
+    chorusDepth.valueProperty().bindBidirectional(ctx.chorusDepthProperty());
+    chorusMix.valueProperty().bindBidirectional(ctx.chorusMixProperty());
+    pedalRow.getChildren().add(chorus);
   }
 }
