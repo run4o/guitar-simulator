@@ -56,11 +56,13 @@ public:
         excite(velocity);
     }
 
-    /* Hammer-on / pull-off: retune without new excitation, fast slew. */
-    void legato(int target_fret) {
+    /* Hammer-on / pull-off: retune without new excitation. `slew_seconds`
+     * > 0 gives an audible glide (true slide); 0 = the fast default. */
+    void legato(int target_fret, float slew_seconds) {
         float f = open_frequency_ * std::pow(2.0f, target_fret / 12.0f);
         nominal_delay_ = clamp_delay(fs_ / f);
-        slew_to(nominal_delay_, kLegatoSlewSeconds);
+        slew_to(nominal_delay_,
+                slew_seconds > 0.0f ? slew_seconds : kLegatoSlewSeconds);
         set_envelope(model_t60_, model_cutoff_);
     }
 

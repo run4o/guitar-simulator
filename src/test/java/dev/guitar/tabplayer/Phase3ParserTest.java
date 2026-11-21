@@ -115,6 +115,18 @@ class Phase3ParserTest {
     /* ---- articulations ------------------------------------------------ */
 
     @Test
+    void slideMarkerGlidesToTarget() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--3/5--|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        List<RenderCommand> legatos = ofType(timeline, GuitarEngine.EVENT_LEGATO);
+        assertEquals(1, plucks.size());
+        assertEquals(1, legatos.size());
+        assertEquals(5, legatos.get(0).fret());
+        // a slide glides audibly (a = slew seconds > 0), unlike h/p (a = 0)
+        assertNear(legatos.get(0).a(), 0.15, 0.001, "slide glide time");
+    }
+
+    @Test
     void ghostAndAccentMarkersSetPluckVelocity() {
         TabParser.TabTimeline timeline = TabParser.compile("e|--g3-*5-3-|\n");
         List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);

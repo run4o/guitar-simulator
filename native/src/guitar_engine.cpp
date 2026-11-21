@@ -161,7 +161,7 @@ void apply_command(gte::PluckedString* strings, float open_frequencies[], int ty
     gte::PluckedString& v = strings[string_index];
     switch (type) {
         case GTE_EVENT_PLUCK:      v.set_vibrato(false); v.pluck(fret, a, b != 0.0f); break;
-        case GTE_EVENT_LEGATO:     v.set_vibrato(false); v.legato(fret); break;
+        case GTE_EVENT_LEGATO:     v.set_vibrato(false); v.legato(fret, a); break;
         case GTE_EVENT_BEND:       v.bend(a); break;
         case GTE_EVENT_MUTE:       v.set_vibrato(false); v.mute(); break;
         case GTE_EVENT_VIBRATO:    v.set_vibrato(a != 0.0f); break;

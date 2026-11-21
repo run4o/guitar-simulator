@@ -594,6 +594,7 @@ public final class TabParser {
       Set<String> warnings) {
     Kind pendingArticulation = null;
     double pendingVelocity = 0.0; // 0 = default pluck strength
+    boolean pendingSlide = false; // the articulation was a slide: glide to the target
     boolean seenNote = false;
     int currentFret = -1;
 
@@ -605,13 +606,16 @@ public final class TabParser {
           boolean legato = pendingArticulation != null && seenNote;
           boolean palm = track.inPalmMute(token.column());
           int type = legato ? RenderCommandType.LEGATO : RenderCommandType.PLUCK;
-          float strength = (float) (pendingVelocity != 0.0 ? pendingVelocity : legato ? 0.0 : 0.9);
+          // slides glide audibly (~0.15 s); h/p/t jump fast
+          float strength = (float) (pendingVelocity != 0.0 ? pendingVelocity
+              : legato ? (pendingSlide ? 0.15 : 0.0) : 0.9);
           add(byColumn, token.column(), new TabEvent(
               new RenderCommand((float) time, type, track.stringIndex, token.fret(), strength,
                   palm ? 1.0f : 0.0f), charPos));
           currentFret = token.fret();
           seenNote = true;
           pendingArticulation = null;
+          pendingSlide = false;
           pendingVelocity = 0.0;
         }
         case GHOST -> pendingVelocity = 0.45;
@@ -634,7 +638,10 @@ public final class TabParser {
             currentFret = token.fret();
           }
         }
-        case HAMMER, PULL, TAP, SLIDE -> pendingArticulation = token.kind();
+        case HAMMER, PULL, TAP, SLIDE -> {
+          pendingArticulation = token.kind();
+          pendingSlide = token.kind() == Kind.SLIDE;
+        }
         case DEAD -> add(byColumn, token.column(),
             new TabEvent(new RenderCommand((float) time, RenderCommandType.MUTE, track.stringIndex, 0, 0.0f, 0.0f),
                 charPos));
