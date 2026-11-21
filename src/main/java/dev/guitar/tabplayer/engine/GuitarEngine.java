@@ -56,6 +56,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setEqFn;
   private final MethodHandle setWahFn;
   private final MethodHandle setGateFn;
+  private final MethodHandle setLooperFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
@@ -124,6 +125,8 @@ public final class GuitarEngine implements AutoCloseable {
       setWahFn = linker.downcallHandle(symbols.find("guitar_engine_set_wah").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGateFn = linker.downcallHandle(symbols.find("guitar_engine_set_gate").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setLooperFn = linker.downcallHandle(symbols.find("guitar_engine_set_looper").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
@@ -560,6 +563,18 @@ public final class GuitarEngine implements AutoCloseable {
       setGateFn.invokeExact(enabled, threshold, release);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_gate failed", t);
+    }
+  }
+
+  /**
+   * Looper pedal: phrase looper (length/level 0..1), after the octave,
+   * on both paths.
+   */
+  public void setLooper(boolean enabled, float length, float level) {
+    try {
+      setLooperFn.invokeExact(enabled, length, level);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_looper failed", t);
     }
   }
 

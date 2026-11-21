@@ -86,6 +86,9 @@ public final class AppContext {
   private final DoubleProperty gateThreshold = new SimpleDoubleProperty(0.5);
   private final DoubleProperty gateRelease = new SimpleDoubleProperty(0.3);
   private final BooleanProperty gateEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty loopLength = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty loopLevel = new SimpleDoubleProperty(0.7);
+  private final BooleanProperty loopEnabled = new SimpleBooleanProperty(false);
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
@@ -113,7 +116,8 @@ public final class AppContext {
         eqBass, eqMid, eqTreble, eqEnabled,
         wahRate, wahCenter, wahResonance, wahEnabled,
         gateThreshold, gateRelease, gateEnabled,
-        octMode, octMix, octEnabled}) {
+        octMode, octMix, octEnabled,
+        loopLength, loopLevel, loopEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -477,6 +481,9 @@ public final class AppContext {
     state.put("oct.enabled", Boolean.toString(octEnabled.get()));
     state.put("oct.mode", Double.toString(octMode.get()));
     state.put("oct.mix", Double.toString(octMix.get()));
+    state.put("loop.enabled", Boolean.toString(loopEnabled.get()));
+    state.put("loop.length", Double.toString(loopLength.get()));
+    state.put("loop.level", Double.toString(loopLevel.get()));
     return state;
   }
 
