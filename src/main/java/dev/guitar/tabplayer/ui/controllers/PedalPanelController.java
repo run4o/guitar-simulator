@@ -175,5 +175,19 @@ public class PedalPanelController {
     eqMid.valueProperty().bindBidirectional(ctx.eqMidProperty());
     eqTreble.valueProperty().bindBidirectional(ctx.eqTrebleProperty());
     pedalRow.getChildren().add(eq);
+
+    // WAH: resonant band-pass sweep (RATE 0 = static rocker position)
+    Knob wahRate = new Knob(0, 1, 0.0, 44);
+    Knob wahCenter = new Knob(0, 1, 0.5, 44);
+    Knob wahRes = new Knob(0, 1, 0.3, 44);
+    PedalBox wah = new PedalBox("WAH");
+    wah.addKnob(wahRate, "RATE");
+    wah.addKnob(wahCenter, "CENTER");
+    wah.addKnob(wahRes, "RESO");
+    wah.enabledProperty().bindBidirectional(ctx.wahEnabledProperty());
+    wahRate.valueProperty().bindBidirectional(ctx.wahRateProperty());
+    wahCenter.valueProperty().bindBidirectional(ctx.wahCenterProperty());
+    wahRes.valueProperty().bindBidirectional(ctx.wahResonanceProperty());
+    pedalRow.getChildren().add(wah);
   }
 }

@@ -646,6 +646,71 @@ private:
 };
 
 /*
+ * Wah: the vocal sweep — a resonant band-pass (RBJ biquad, unit peak
+ * gain) whose center frequency slides across the spectrum. RATE sweeps
+ * it with an LFO (auto-wah); 0 holds the filter at the CENTER position
+ * (the foot rocker held still). CENTER spans 200 Hz..3 kHz (log),
+ * RESONANCE sets the filter's Q (1..20, the vocal peak).
+ */
+class WahPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        x1_ = x2_ = y1_ = y2_ = 0.0f;
+        phase_ = 0.0f;
+        setParams(rate_, center_, resonance_);
+    }
+
+    void setParams(float rate, float center, float resonance) {
+        rate_ = std::clamp(rate, 0.0f, 1.0f);
+        center_ = std::clamp(center, 0.0f, 1.0f);
+        resonance_ = std::clamp(resonance, 0.0f, 1.0f);
+        rate_hz_ = 8.0f * rate_;                         // 0 .. 8 Hz (0 = static)
+        center_hz_ = 200.0f * std::pow(15.0f, center_);  // 200 Hz .. 3 kHz
+        q_ = 20.0f - 19.0f * resonance_;                 // Q 20 .. 1 (knob up = peaky)
+    }
+
+    float process(float in) override {
+        float fc = center_hz_;
+        if (rate_hz_ > 0.0f) {
+            phase_ += 6.2831853f * rate_hz_ / fs_;
+            if (phase_ > 6.2831853f) {
+                phase_ -= 6.2831853f;
+            }
+            fc = center_hz_ * std::pow(2.0f, std::sin(phase_)); // +/- 1 octave
+        }
+        // RBJ band-pass biquad (constant 0 dB peak gain)
+        const float w0 = 6.2831853f * fc / fs_;
+        const float alpha = std::sin(w0) / (2.0f * q_);
+        const float a0 = 1.0f + alpha;
+        const float b0 = alpha / a0;
+        const float b2 = -alpha / a0;
+        const float a1 = -2.0f * std::cos(w0) / a0;
+        const float a2 = (1.0f - alpha) / a0;
+        const float y = b0 * in + b2 * x2_ - a1 * y1_ - a2 * y2_;
+        x2_ = x1_;
+        x1_ = in;
+        y2_ = y1_;
+        y1_ = y;
+        return y;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float rate_ = 0.0f;
+    float center_ = 0.5f;
+    float resonance_ = 0.3f;
+    float rate_hz_ = 0.0f;
+    float center_hz_ = 1000.0f;
+    float q_ = 10.0f;
+    float x1_ = 0.0f;
+    float x2_ = 0.0f;
+    float y1_ = 0.0f;
+    float y2_ = 0.0f;
+    float phase_ = 0.0f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -665,6 +730,7 @@ public:
         vibrato_.prepare(fs_);
         compressor_.prepare(fs_);
         eq_.prepare(fs_);
+        wah_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -727,6 +793,11 @@ public:
         eq_.setParams(bass, mid, treble);
     }
 
+    void setWah(bool enabled, float rate, float center, float resonance) {
+        wah_.enabled = enabled;
+        wah_.setParams(rate, center, resonance);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -764,6 +835,9 @@ public:
         if (eq_.enabled) {
             in = eq_.process(in);
         }
+        if (wah_.enabled) {
+            in = wah_.process(in);
+        }
         return in;
     }
 
@@ -781,6 +855,7 @@ private:
     VibratoPedal vibrato_;
     CompressorPedal compressor_;
     EqualizerPedal eq_;
+    WahPedal wah_;
 };
 
 } // namespace gte

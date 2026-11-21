@@ -54,6 +54,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setVibratoFn;
   private final MethodHandle setCompressorFn;
   private final MethodHandle setEqFn;
+  private final MethodHandle setWahFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -117,6 +118,8 @@ public final class GuitarEngine implements AutoCloseable {
       setCompressorFn = linker.downcallHandle(symbols.find("guitar_engine_set_compressor").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setEqFn = linker.downcallHandle(symbols.find("guitar_engine_set_eq").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
+      setWahFn = linker.downcallHandle(symbols.find("guitar_engine_set_wah").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
@@ -527,6 +530,18 @@ public final class GuitarEngine implements AutoCloseable {
       setEqFn.invokeExact(enabled, bass, mid, treble);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_eq failed", t);
+    }
+  }
+
+  /**
+   * Wah pedal: resonant band-pass sweep (rate/center/resonance 0..1),
+   * after the EQ, on both paths.
+   */
+  public void setWah(boolean enabled, float rate, float center, float resonance) {
+    try {
+      setWahFn.invokeExact(enabled, rate, center, resonance);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_wah failed", t);
     }
   }
 

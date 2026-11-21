@@ -79,6 +79,10 @@ public final class AppContext {
   private final DoubleProperty eqMid = new SimpleDoubleProperty(0.5);
   private final DoubleProperty eqTreble = new SimpleDoubleProperty(0.5);
   private final BooleanProperty eqEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty wahRate = new SimpleDoubleProperty(0.0);
+  private final DoubleProperty wahCenter = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty wahResonance = new SimpleDoubleProperty(0.3);
+  private final BooleanProperty wahEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -100,7 +104,8 @@ public final class AppContext {
         tremoloRate, tremoloDepth, tremoloEnabled,
         vibratoRate, vibratoDepth, vibratoMix, vibratoEnabled,
         compSustain, compLevel, compEnabled,
-        eqBass, eqMid, eqTreble, eqEnabled}) {
+        eqBass, eqMid, eqTreble, eqEnabled,
+        wahRate, wahCenter, wahResonance, wahEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -351,6 +356,22 @@ public final class AppContext {
     return eqEnabled;
   }
 
+  public DoubleProperty wahRateProperty() {
+    return wahRate;
+  }
+
+  public DoubleProperty wahCenterProperty() {
+    return wahCenter;
+  }
+
+  public DoubleProperty wahResonanceProperty() {
+    return wahResonance;
+  }
+
+  public BooleanProperty wahEnabledProperty() {
+    return wahEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -414,6 +435,10 @@ public final class AppContext {
     state.put("eq.bass", Double.toString(eqBass.get()));
     state.put("eq.mid", Double.toString(eqMid.get()));
     state.put("eq.treble", Double.toString(eqTreble.get()));
+    state.put("wah.enabled", Boolean.toString(wahEnabled.get()));
+    state.put("wah.rate", Double.toString(wahRate.get()));
+    state.put("wah.center", Double.toString(wahCenter.get()));
+    state.put("wah.resonance", Double.toString(wahResonance.get()));
     return state;
   }
 
@@ -463,6 +488,10 @@ public final class AppContext {
     eqBass.set(clamp(parse(state.getOrDefault("eq.bass", "0.5")), 0, 1));
     eqMid.set(clamp(parse(state.getOrDefault("eq.mid", "0.5")), 0, 1));
     eqTreble.set(clamp(parse(state.getOrDefault("eq.treble", "0.5")), 0, 1));
+    wahEnabled.set(Boolean.parseBoolean(state.getOrDefault("wah.enabled", "false")));
+    wahRate.set(clamp(parse(state.getOrDefault("wah.rate", "0")), 0, 1));
+    wahCenter.set(clamp(parse(state.getOrDefault("wah.center", "0.5")), 0, 1));
+    wahResonance.set(clamp(parse(state.getOrDefault("wah.resonance", "0.3")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -508,6 +537,8 @@ public final class AppContext {
         (float) vibratoDepth.get(), (float) vibratoMix.get());
     engine.setCompressor(compEnabled.get(), (float) compSustain.get(), (float) compLevel.get());
     engine.setEq(eqEnabled.get(), (float) eqBass.get(), (float) eqMid.get(), (float) eqTreble.get());
+    engine.setWah(wahEnabled.get(), (float) wahRate.get(), (float) wahCenter.get(),
+        (float) wahResonance.get());
   }
 
   public void applyTuning(Tuning tuning) {

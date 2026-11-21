@@ -738,4 +738,65 @@ class Phase6PedalTest {
                 "treble boost must lift the high harmonics: flat=" + flatMag
                         + " boosted=" + boostedMag);
     }
+
+    /* ---- wah -------------------------------------------------------------- */
+
+    /** Same fixture with wah params (amp section neutral). */
+    private WavAnalysis.Wav renderWah(boolean enabled, float rate, float center,
+                                      float resonance) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("wah-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setWah(enabled, rate, center, resonance);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedWahLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsPinned = renderWah(false, 1.0f, 1.0f, 1.0f);
+        WavAnalysis.Wav clean = renderWah(false, 0f, 0.5f, 0.3f);
+        float ratio = WavAnalysis.rms(knobsPinned, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed wah must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void staticWahPassesItsCenter() throws Exception {
+        // a static rocker position (rate 0) tuned onto the note keeps its
+        // fundamental (494 Hz, center knob 0.334) and sheds the harmonics
+        WavAnalysis.Wav clean = renderWah(false, 0f, 0.334f, 0.3f);
+        WavAnalysis.Wav on = renderWah(true, 0f, 0.334f, 0.526f);
+        float ratio = WavAnalysis.rms(on, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.3f && ratio < 0.98f,
+                "the wah must keep the note but shed its harmonics, ratio=" + ratio);
+    }
+
+    @Test
+    void wahAwayFromTheNoteKillsIt() throws Exception {
+        // center ~1 kHz (knob 0.594): the 494 Hz fundamental is rejected —
+        // only the 2nd harmonic (988 Hz) near the band survives
+        WavAnalysis.Wav on = renderWah(true, 0f, 0.334f, 0.526f);
+        WavAnalysis.Wav away = renderWah(true, 0f, 0.594f, 0.526f);
+        float ratio = WavAnalysis.rms(away, 0.05, 0.30) / WavAnalysis.rms(on, 0.05, 0.30);
+        assertTrue(ratio < 0.5f,
+                "the wah must reject the note when centered away, ratio=" + ratio);
+    }
+
+    @Test
+    void wahLfoSweepsTheBand() throws Exception {
+        // with the LFO running the band leaves the note's frequency part of
+        // the cycle, so the swept render is quieter than a static filter
+        // parked exactly on the note
+        WavAnalysis.Wav parked = renderWah(true, 0f, 0.334f, 0.526f);
+        WavAnalysis.Wav swept = renderWah(true, 1.0f, 0.334f, 0.526f);
+        float ratio = WavAnalysis.rms(swept, 0.05, 0.30) / WavAnalysis.rms(parked, 0.05, 0.30);
+        assertTrue(ratio < 0.85f && ratio > 0.2f,
+                "the LFO must sweep the band across the note, ratio=" + ratio);
+    }
 }
