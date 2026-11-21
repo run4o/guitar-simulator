@@ -137,6 +137,7 @@ public final class GpImport {
     double bendSemitones; // 0 = none
     boolean palmMute;
     boolean tap;
+    double velocity;      // 0 = default pluck strength; else ghost/accent/dynamic
     int col;              // placed column (set by the generator)
 
     NoteEvent(int stringIndex, int fret, boolean dead) {
@@ -658,6 +659,7 @@ public final class GpImport {
       int flags = r.u1();
       boolean dead = false;
       boolean tie = false;
+      double velocity = 0.0; // 0 = default pluck strength
       if ((flags & 0x20) != 0) {
         int noteType = r.u1();
         dead = noteType == 3;
@@ -667,7 +669,8 @@ public final class GpImport {
         r.skip(2); // duration + tuplet
       }
       if ((flags & 0x10) != 0) {
-        r.s1(); // dynamic
+        int dynamic = r.s1(); // 1 = PPP .. 8 = FFF
+        velocity = dynamic <= 3 ? 0.45 : dynamic >= 6 ? 1.0 : 0.0;
       }
       int fret = -1;
       if ((flags & 0x20) != 0) {
@@ -682,6 +685,12 @@ public final class GpImport {
       }
       NoteEvent note = new NoteEvent(5 - gpStringIndex, fret, dead);
       note.tap = tap;
+      if ((flags & 0x04) != 0) {
+        velocity = 0.45; // ghost note
+      } else if ((flags & 0x02) != 0) {
+        velocity = 1.0; // heavy accent
+      }
+      note.velocity = velocity;
       if (version >= 500) {
         if ((flags & 0x01) != 0) {
           r.skip(8); // duration percent (float64 LE)
@@ -946,9 +955,12 @@ public final class GpImport {
           boolean dead = note.dead;
           String glyph = dead ? "x" : Integer.toString(note.fret);
           int start = prevEnd >= 0 ? Math.max(note.col, prevEnd + 1) : Math.max(note.col, 0);
-          // tap marker before the note: 't' + one separating column
-          if (note.tap && start - (prevEnd + 1) >= 2 && start >= 2) {
-            cells[s][start - 2] = 't';
+          // pre-note markers: velocity (g/*) or tap, 1 char + one separating
+          // column; velocity wins when both are present
+          char pre = note.velocity != 0.0 ? (note.velocity < 0.9 ? 'g' : '*')
+              : note.tap ? 't' : 0;
+          if (pre != 0 && start - (prevEnd + 1) >= 2 && start >= 2) {
+            cells[s][start - 2] = pre;
           }
           for (int c = start; c < start + glyph.length() && c < cells[s].length; c++) {
             cells[s][c] = glyph.charAt(c - start);
@@ -980,8 +992,9 @@ public final class GpImport {
             }
           } else if (!dead && glyph.length() == 1 && !note.palmMute) {
             // sustain fill: repeat the digit across the note's duration,
-            // reserving room for the next note's tap/PM markers
-            int reserve = next != null && (next.tap || next.palmMute) ? 4 : 2;
+            // reserving room for the next note's velocity/tap/PM markers
+            int reserve = next != null
+                && (next.tap || next.palmMute || next.velocity != 0.0) ? 4 : 2;
             int fillEnd = next != null ? Math.min(next.col - reserve, cols - 1) : cols - 1;
             for (int c = start + 1; c <= fillEnd; c++) {
               cells[s][c] = glyph.charAt(0);

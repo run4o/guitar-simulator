@@ -103,13 +103,10 @@ class GpImportTest {
 
   @Test
   void importsArticulations() throws IOException {
-    // 4 bars: hammer origin, bend +4, palm mute, tap — emitted as the tab's
-    // articulation tokens and compiled to the engine's techniques
+    // 6 bars: hammer origin, bend +4, palm mute, tap, ghost, accent
     Path file = tempDir.resolve("articulations.gp5");
-    Files.write(file, gp5Fixture(4, 0, null, 4, 4, true));
-
-    GpImport.GpSong song = GpImport.importFile(file);
-    String ascii = song.ascii();
+    Files.write(file, gp5Fixture(6, 0, null, 4, 4, true));
+    String ascii = GpImport.importFile(file).ascii();
 
     // bar 1: hammer origin -> 'h' before the fret-5 target
     assertTrue(ascii.contains("h 5"), "hammer token missing:\n" + ascii);
@@ -119,10 +116,13 @@ class GpImportTest {
     assertTrue(ascii.contains("PM 5 PM"), "palm mute markers missing:\n" + ascii);
     // bar 4: tap marker before the fret-5 note
     assertTrue(ascii.contains("t 5"), "tap token missing:\n" + ascii);
+    // bar 5: ghost note marker, bar 6: accent marker
+    assertTrue(ascii.contains("g 5"), "ghost marker missing:\n" + ascii);
+    assertTrue(ascii.contains("* 5"), "accent marker missing:\n" + ascii);
 
-    // compiled: legato (hammer + tap), bend with relative semitones, and a
-    // palm-muted pluck
-    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, song.bpm());
+    // compiled: legato (hammer + tap), bend with relative semitones, a
+    // palm-muted pluck, and velocity-strength plucks
+    var timeline = dev.guitar.tabplayer.tab.TabParser.compile(ascii, 120);
     var commands = timeline.commands();
     assertTrue(commands.stream().anyMatch(c -> c.type() == 1 && c.stringIndex() == 5 && c.fret() == 5),
         "hammer/tap must compile to LEGATO on the high e string");
@@ -130,6 +130,12 @@ class GpImportTest {
         "bend must compile with +4 semitones");
     assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.stringIndex() == 5 && c.fret() == 5 && c.b() == 1.0f),
         "palm-mute region must reach the fret-5 pluck");
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.stringIndex() == 5 && c.fret() == 5
+            && Math.abs(c.a() - 0.45f) < 0.01f),
+        "ghost note must pluck at reduced strength");
+    assertTrue(commands.stream().anyMatch(c -> c.type() == 0 && c.stringIndex() == 5 && c.fret() == 5
+            && Math.abs(c.a() - 1.0f) < 0.01f),
+        "accent note must pluck at full strength");
     assertTrue(timeline.warnings().stream().noneMatch(w -> w.contains("out of range")));
   }
 
@@ -270,9 +276,10 @@ class GpImportTest {
 
     // bar 0, track 0: GP5 voice header + 2 voices
     if (withArticulations) {
-      // four bars, one half-note each on the high e string; beat 2 carries a
-      // per-bar articulation: hammer origin, bend, palm mute, tap
-      for (int i = 0; i < 4; i++) {
+      // six bars, one half-note each on the high e string; beat 1 carries a
+      // per-bar articulation origin (hammer, bend), beat 2 carries palm
+      // mute, tap, ghost and accent
+      for (int i = 0; i < 6; i++) {
         d.writeByte(0); // voice header
         writeIntLE(d, 2); // beats
         // beat 1: half note, fret 3, carrying the hammer/bend articulation
@@ -312,7 +319,8 @@ class GpImportTest {
           d.writeByte(1); // slap = tap
         }
         d.writeByte(0x40); // string flags: high e
-        d.writeByte(palm ? 0x28 : 0x20); // note flags (+ effects)
+        int noteFlags = palm ? 0x28 : i == 4 ? 0x24 : i == 5 ? 0x22 : 0x20;
+        d.writeByte(noteFlags); // note flags (+ ghost 0x04 / accent 0x02 / effects 0x08)
         d.writeByte(1); // note type: regular
         d.writeByte(5); // fret
         d.writeByte(0); // note flags2

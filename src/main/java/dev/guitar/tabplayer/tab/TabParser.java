@@ -76,6 +76,8 @@ public final class TabParser {
 
   private enum Kind {
     NOTE,
+    GHOST,
+    ACCENT,
     HAMMER,
     PULL,
     TAP,
@@ -445,6 +447,14 @@ public final class TabParser {
         };
         track.tokens.add(new Token(i, kind, -1));
         i++;
+      } else if (c == 'g') {
+        // ghost note: next note plucks at reduced strength
+        track.tokens.add(new Token(i, Kind.GHOST, -1));
+        i++;
+      } else if (c == '*') {
+        // accent: next note plucks at full strength
+        track.tokens.add(new Token(i, Kind.ACCENT, -1));
+        i++;
       } else if (c == '~') {
         track.tokens.add(new Token(i, Kind.VIBRATO, -1));
         i++;
@@ -569,6 +579,7 @@ public final class TabParser {
   private static void compileTrack(StringTrack track, double start, double tick, Map<Integer, List<TabEvent>> byColumn,
       Set<String> warnings) {
     Kind pendingArticulation = null;
+    double pendingVelocity = 0.0; // 0 = default pluck strength
     boolean seenNote = false;
     int currentFret = -1;
 
@@ -580,13 +591,17 @@ public final class TabParser {
           boolean legato = pendingArticulation != null && seenNote;
           boolean palm = track.inPalmMute(token.column());
           int type = legato ? RenderCommandType.LEGATO : RenderCommandType.PLUCK;
+          float strength = (float) (pendingVelocity != 0.0 ? pendingVelocity : legato ? 0.0 : 0.9);
           add(byColumn, token.column(), new TabEvent(
-              new RenderCommand((float) time, type, track.stringIndex, token.fret(), legato ? 0.0f : 0.9f,
+              new RenderCommand((float) time, type, track.stringIndex, token.fret(), strength,
                   palm ? 1.0f : 0.0f), charPos));
           currentFret = token.fret();
           seenNote = true;
           pendingArticulation = null;
+          pendingVelocity = 0.0;
         }
+        case GHOST -> pendingVelocity = 0.45;
+        case ACCENT -> pendingVelocity = 1.0;
         case BEND -> {
           if (token.fret() >= 0 && currentFret >= 0) {
             add(byColumn, token.column(), new TabEvent(

@@ -115,6 +115,16 @@ class Phase3ParserTest {
     /* ---- articulations ------------------------------------------------ */
 
     @Test
+    void ghostAndAccentMarkersSetPluckVelocity() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--g3-*5-3-|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        assertEquals(3, plucks.size());
+        assertNear(plucks.get(0).a(), 0.45, 0.001, "ghost velocity");
+        assertNear(plucks.get(1).a(), 1.0, 0.001, "accent velocity");
+        assertNear(plucks.get(2).a(), 0.9, 0.001, "default velocity");
+    }
+
+    @Test
     void hammerOnMarkerProducesLegato() {
         TabParser.TabTimeline timeline = TabParser.compile("e|--3h5--|\n");
         List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
