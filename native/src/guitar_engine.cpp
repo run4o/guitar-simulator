@@ -158,6 +158,9 @@ struct PedalParams {
     std::atomic<bool> oct_enabled{false};
     std::atomic<float> oct_mode{0.0f};
     std::atomic<float> oct_mix{1.0f};
+    std::atomic<bool> loop_enabled{false};
+    std::atomic<float> loop_length{0.5f};
+    std::atomic<float> loop_level{0.7f};
 };
 PedalParams g_pedals;
 
@@ -255,7 +258,7 @@ void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
     }
 }
 
-void sync_pedal_params(gte::PedalChain& chain, float cached[54]) {
+void sync_pedal_params(gte::PedalChain& chain, float cached[57]) {
     const float boostOn = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     const float boostGain = g_pedals.boost_gain.load(std::memory_order_relaxed);
     const float fuzzOn = g_pedals.fuzz_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;

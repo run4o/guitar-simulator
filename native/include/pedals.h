@@ -829,6 +829,53 @@ private:
 };
 
 /*
+ * Looper: layers parts — the signal is written into a circular loop
+ * buffer (LENGTH seconds, 0.25..4) and the previous pass plays back
+ * underneath (overdub style: each cycle the recorded content decays a
+ * little and the new input layers on), so riffs stack and repeat.
+ * LEVEL scales the loop playback against the dry signal.
+ */
+class LooperPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        const int capacity = static_cast<int>(sample_rate * 4.0f) + 16;
+        if (static_cast<int>(buffer_.size()) != capacity) {
+            buffer_.assign(capacity, 0.0f);
+        } else {
+            std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+        }
+        write_ = 0;
+        setParams(length_, level_);
+    }
+
+    void setParams(float length, float level) {
+        length_ = std::clamp(length, 0.0f, 1.0f);
+        level_ = std::clamp(level, 0.0f, 1.0f);
+        loop_samples_ = std::max(64, static_cast<int>((0.25f + 3.75f * length_) * fs_));
+        if (write_ >= loop_samples_) {
+            write_ = 0; // the wrap point moved; restart the cycle
+        }
+    }
+
+    float process(float in) override {
+        const float looped = buffer_[write_];
+        // overdub: the old layer decays a little, the new input layers on
+        buffer_[write_] = looped * 0.8f + in * 0.4f;
+        write_ = write_ + 1 == loop_samples_ ? 0 : write_ + 1;
+        return in + looped * level_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float length_ = 0.5f;
+    float level_ = 0.7f;
+    int loop_samples_ = 22050;
+    int write_ = 0;
+    std::vector<float> buffer_;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -851,6 +898,7 @@ public:
         wah_.prepare(fs_);
         gate_.prepare(fs_);
         octave_.prepare(fs_);
+        looper_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -928,6 +976,11 @@ public:
         octave_.setParams(mode, mix);
     }
 
+    void setLooper(bool enabled, float length, float level) {
+        looper_.enabled = enabled;
+        looper_.setParams(length, level);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -974,6 +1027,9 @@ public:
         if (octave_.enabled) {
             in = octave_.process(in);
         }
+        if (looper_.enabled) {
+            in = looper_.process(in);
+        }
         return in;
     }
 
@@ -994,6 +1050,7 @@ private:
     WahPedal wah_;
     GatePedal gate_;
     OctavePedal octave_;
+    LooperPedal looper_;
 };
 
 } // namespace gte
