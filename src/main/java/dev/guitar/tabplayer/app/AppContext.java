@@ -86,6 +86,9 @@ public final class AppContext {
   private final DoubleProperty gateThreshold = new SimpleDoubleProperty(0.5);
   private final DoubleProperty gateRelease = new SimpleDoubleProperty(0.3);
   private final BooleanProperty gateEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
+  private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
+  private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -109,7 +112,8 @@ public final class AppContext {
         compSustain, compLevel, compEnabled,
         eqBass, eqMid, eqTreble, eqEnabled,
         wahRate, wahCenter, wahResonance, wahEnabled,
-        gateThreshold, gateRelease, gateEnabled}) {
+        gateThreshold, gateRelease, gateEnabled,
+        octMode, octMix, octEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -388,6 +392,18 @@ public final class AppContext {
     return gateEnabled;
   }
 
+  public DoubleProperty octModeProperty() {
+    return octMode;
+  }
+
+  public DoubleProperty octMixProperty() {
+    return octMix;
+  }
+
+  public BooleanProperty octEnabledProperty() {
+    return octEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -458,6 +474,9 @@ public final class AppContext {
     state.put("gate.enabled", Boolean.toString(gateEnabled.get()));
     state.put("gate.threshold", Double.toString(gateThreshold.get()));
     state.put("gate.release", Double.toString(gateRelease.get()));
+    state.put("oct.enabled", Boolean.toString(octEnabled.get()));
+    state.put("oct.mode", Double.toString(octMode.get()));
+    state.put("oct.mix", Double.toString(octMix.get()));
     return state;
   }
 
@@ -514,6 +533,9 @@ public final class AppContext {
     gateEnabled.set(Boolean.parseBoolean(state.getOrDefault("gate.enabled", "false")));
     gateThreshold.set(clamp(parse(state.getOrDefault("gate.threshold", "0.5")), 0, 1));
     gateRelease.set(clamp(parse(state.getOrDefault("gate.release", "0.3")), 0, 1));
+    octEnabled.set(Boolean.parseBoolean(state.getOrDefault("oct.enabled", "false")));
+    octMode.set(clamp(parse(state.getOrDefault("oct.mode", "0")), 0, 1));
+    octMix.set(clamp(parse(state.getOrDefault("oct.mix", "0.7")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -562,6 +584,7 @@ public final class AppContext {
     engine.setWah(wahEnabled.get(), (float) wahRate.get(), (float) wahCenter.get(),
         (float) wahResonance.get());
     engine.setGate(gateEnabled.get(), (float) gateThreshold.get(), (float) gateRelease.get());
+    engine.setOctave(octEnabled.get(), (float) octMode.get(), (float) octMix.get());
   }
 
   public void applyTuning(Tuning tuning) {

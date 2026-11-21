@@ -200,5 +200,16 @@ public class PedalPanelController {
     gateThr.valueProperty().bindBidirectional(ctx.gateThresholdProperty());
     gateRel.valueProperty().bindBidirectional(ctx.gateReleaseProperty());
     pedalRow.getChildren().add(gate);
+
+    // OCTAVE: analog octave doubling (MODE 0 = down, 1 = up)
+    Knob octMode = new Knob(0, 1, 0.0, 44);
+    Knob octMix = new Knob(0, 1, 0.7, 44);
+    PedalBox octave = new PedalBox("OCTAVE");
+    octave.addKnob(octMode, "MODE");
+    octave.addKnob(octMix, "MIX");
+    octave.enabledProperty().bindBidirectional(ctx.octEnabledProperty());
+    octMode.valueProperty().bindBidirectional(ctx.octModeProperty());
+    octMix.valueProperty().bindBidirectional(ctx.octMixProperty());
+    pedalRow.getChildren().add(octave);
   }
 }

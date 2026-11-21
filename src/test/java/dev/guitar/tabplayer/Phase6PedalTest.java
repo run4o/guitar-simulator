@@ -894,4 +894,63 @@ class Phase6PedalTest {
         assertTrue(longTail > 2.0f * shortTail,
                 "release must smooth the gate closure: fast=" + shortTail + " slow=" + longTail);
     }
+
+    /* ---- octave ----------------------------------------------------------- */
+
+    /** Same fixture with octave params (amp section neutral). */
+    private WavAnalysis.Wav renderOctave(boolean enabled, float mode, float mix) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("oct-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setOctave(enabled, mode, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedOctaveLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderOctave(false, 1.0f, 1.0f);
+        WavAnalysis.Wav clean = renderOctave(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed octave must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void octaveDownHalvesThePitch() throws Exception {
+        // mode 0 at full mix: the signal becomes the octave-down flip-flop
+        WavAnalysis.Wav clean = renderOctave(false, 0f, 0f);
+        WavAnalysis.Wav down = renderOctave(true, 0.0f, 1.0f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.05, 0.30);
+        float downF0 = WavAnalysis.detectPitch(down, 0.05, 0.30);
+        assertTrue(downF0 < f0 * 0.6f,
+                "octave-down must halve the pitch: f0=" + f0 + " down=" + downF0);
+    }
+
+    @Test
+    void octaveUpDoublesThePitch() throws Exception {
+        // mode 1 at full mix: the signal becomes the rectified octave-up
+        WavAnalysis.Wav clean = renderOctave(false, 0f, 0f);
+        WavAnalysis.Wav up = renderOctave(true, 1.0f, 1.0f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.05, 0.30);
+        float upF0 = WavAnalysis.detectPitch(up, 0.05, 0.30);
+        assertTrue(upF0 > f0 * 1.6f,
+                "octave-up must double the pitch: f0=" + f0 + " up=" + upF0);
+    }
+
+    @Test
+    void octaveWithMixZeroIsDry() throws Exception {
+        // out = in + (shifted - in)*mix: mix 0 is an exact passthrough even
+        // with the pedal engaged and the mode knob anywhere
+        WavAnalysis.Wav clean = renderOctave(false, 0f, 0f);
+        WavAnalysis.Wav dry = renderOctave(true, 1.0f, 0.0f);
+        float ratio = WavAnalysis.rms(dry, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "mix 0 octave must pass the signal untouched, ratio=" + ratio);
+    }
 }

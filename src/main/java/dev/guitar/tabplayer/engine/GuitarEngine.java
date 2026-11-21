@@ -56,6 +56,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setEqFn;
   private final MethodHandle setWahFn;
   private final MethodHandle setGateFn;
+  private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -123,6 +124,8 @@ public final class GuitarEngine implements AutoCloseable {
       setWahFn = linker.downcallHandle(symbols.find("guitar_engine_set_wah").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGateFn = linker.downcallHandle(symbols.find("guitar_engine_set_gate").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
@@ -557,6 +560,19 @@ public final class GuitarEngine implements AutoCloseable {
       setGateFn.invokeExact(enabled, threshold, release);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_gate failed", t);
+    }
+  }
+
+  /**
+   * Octave pedal: analog-style octave doubling (mode 0 = down an octave,
+   * 1 = up an octave; mix 0..1 blends the shifted copy), after the gate,
+   * on both paths.
+   */
+  public void setOctave(boolean enabled, float mode, float mix) {
+    try {
+      setOctaveFn.invokeExact(enabled, mode, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_octave failed", t);
     }
   }
 

@@ -760,6 +760,75 @@ private:
 };
 
 /*
+ * Octave / pitch shifter: a dual-tap harmonizer — the input is written
+ * into a circular buffer and read back at twice (up) or half (down)
+ * speed; two taps half a window apart, crossfaded by complementary
+ * windows, hide the wrap discontinuity. MODE picks down/up, MIX blends
+ * the shifted copy with the dry signal.
+ */
+class OctavePedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        const int capacity = static_cast<int>(sample_rate * 0.06f) + 16;
+        if (static_cast<int>(buffer_.size()) != capacity) {
+            buffer_.assign(capacity, 0.0f);
+        } else {
+            std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+        }
+        write_ = 0;
+        phase_ = 0.0f;
+        setParams(mode_, mix_);
+    }
+
+    void setParams(float mode, float mix) {
+        mode_ = std::clamp(mode, 0.0f, 1.0f);
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+        ratio_ = mode_ < 0.5f ? 0.5f : 2.0f; // down an octave or up one
+    }
+
+    float process(float in) override {
+        const int size = static_cast<int>(buffer_.size());
+        const float halfF = static_cast<float>(size / 2);
+        // the read taps drift through the window at (ratio - 1) samples
+        // per sample; each wrap lands where its crossfade weight is 0
+        phase_ += 1.0f - ratio_;
+        if (phase_ < 0.0f) {
+            phase_ += halfF;
+        } else if (phase_ >= halfF) {
+            phase_ -= halfF;
+        }
+        float d1 = phase_ + halfF * 0.5f;
+        if (d1 >= halfF) {
+            d1 -= halfF;
+        }
+        const float w0 = 0.5f - 0.5f * std::cos(6.2831853f * phase_ / halfF);
+        const float w1 = 1.0f - w0;
+        const float wet = readTap(phase_) * w0 + readTap(d1) * w1;
+        buffer_[write_] = in;
+        write_ = write_ + 1 == size ? 0 : write_ + 1;
+        return in + (wet - in) * mix_;
+    }
+
+private:
+    float readTap(float delay) const {
+        int r = write_ - static_cast<int>(delay);
+        while (r < 0) {
+            r += static_cast<int>(buffer_.size());
+        }
+        return buffer_[r];
+    }
+
+    float fs_ = 44100.0f;
+    float mode_ = 0.0f;
+    float mix_ = 1.0f;
+    float ratio_ = 0.5f;
+    float phase_ = 0.0f;
+    int write_ = 0;
+    std::vector<float> buffer_;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -781,6 +850,7 @@ public:
         eq_.prepare(fs_);
         wah_.prepare(fs_);
         gate_.prepare(fs_);
+        octave_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -853,6 +923,11 @@ public:
         gate_.setParams(threshold, release);
     }
 
+    void setOctave(bool enabled, float mode, float mix) {
+        octave_.enabled = enabled;
+        octave_.setParams(mode, mix);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -896,6 +971,9 @@ public:
         if (gate_.enabled) {
             in = gate_.process(in);
         }
+        if (octave_.enabled) {
+            in = octave_.process(in);
+        }
         return in;
     }
 
@@ -915,6 +993,7 @@ private:
     EqualizerPedal eq_;
     WahPedal wah_;
     GatePedal gate_;
+    OctavePedal octave_;
 };
 
 } // namespace gte
