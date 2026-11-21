@@ -52,6 +52,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setPhaserFn;
   private final MethodHandle setTremoloFn;
   private final MethodHandle setVibratoFn;
+  private final MethodHandle setCompressorFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -112,6 +113,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setVibratoFn = linker.downcallHandle(symbols.find("guitar_engine_set_vibrato").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
+      setCompressorFn = linker.downcallHandle(symbols.find("guitar_engine_set_compressor").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -497,6 +500,18 @@ public final class GuitarEngine implements AutoCloseable {
       setVibratoFn.invokeExact(enabled, rate, depth, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_vibrato failed", t);
+    }
+  }
+
+  /**
+   * Compressor pedal: envelope follower with make-up gain (sustain/level
+   * 0..1), after the vibrato, on both paths.
+   */
+  public void setCompressor(boolean enabled, float sustain, float level) {
+    try {
+      setCompressorFn.invokeExact(enabled, sustain, level);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_compressor failed", t);
     }
   }
 

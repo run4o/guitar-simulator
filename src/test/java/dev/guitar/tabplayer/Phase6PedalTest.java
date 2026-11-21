@@ -605,4 +605,66 @@ class Phase6PedalTest {
         assertTrue(deepSb > 1.5f * lightSb,
                 "depth must scale the pitch wobble: light=" + lightSb + " deep=" + deepSb);
     }
+
+    /* ---- compressor ------------------------------------------------------ */
+
+    /**
+     * Dynamic fixture: a loud pluck at t=0 (choked at 0.3 s), then a quiet
+     * pluck at 0.5 s — the compressor must even out the difference.
+     */
+    private WavAnalysis.Wav renderComp(boolean enabled, float sustain, float level) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f),
+                new RenderCommand(0.5f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.05f, 0f));
+        Path wav = tempDir.resolve("comp-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setCompressor(enabled, sustain, level);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedCompressorLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderComp(false, 0.8f, 0.8f);
+        WavAnalysis.Wav clean = renderComp(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed compressor must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void compressorDucksTheLoudNote() throws Exception {
+        // sustain 0 barely engages (threshold -10 dB, ratio 2:1); sustain 1
+        // ducks the loud note hard
+        WavAnalysis.Wav mild = renderComp(true, 0.0f, 0.5f);
+        WavAnalysis.Wav heavy = renderComp(true, 1.0f, 0.5f);
+        float ratio = WavAnalysis.rms(heavy, 0.05, 0.25) / WavAnalysis.rms(mild, 0.05, 0.25);
+        assertTrue(ratio < 0.9f,
+                "high sustain must duck the loud note: ratio=" + ratio);
+    }
+
+    @Test
+    void compressorEvensOutDynamics() throws Exception {
+        // the quiet pluck rides closer to the loud one after compression
+        WavAnalysis.Wav mild = renderComp(true, 0.0f, 0.5f);
+        WavAnalysis.Wav heavy = renderComp(true, 1.0f, 0.5f);
+        float mildSpread = WavAnalysis.rms(mild, 0.55, 0.75) / WavAnalysis.rms(mild, 0.05, 0.25);
+        float heavySpread = WavAnalysis.rms(heavy, 0.55, 0.75) / WavAnalysis.rms(heavy, 0.05, 0.25);
+        assertTrue(heavySpread > mildSpread * 1.2f,
+                "compression must even out the two notes: mild=" + mildSpread
+                        + " heavy=" + heavySpread);
+    }
+
+    @Test
+    void compressorLevelScalesTheMakeup() throws Exception {
+        WavAnalysis.Wav low = renderComp(true, 0.8f, 0.2f);
+        WavAnalysis.Wav high = renderComp(true, 0.8f, 1.0f);
+        float ratio = WavAnalysis.rms(high, 0.05, 0.25) / WavAnalysis.rms(low, 0.05, 0.25);
+        assertTrue(ratio > 2.0f,
+                "level must restore the output volume, ratio=" + ratio);
+    }
 }

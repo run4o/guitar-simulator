@@ -541,6 +541,62 @@ private:
 };
 
 /*
+ * Compressor: evens out the volume — an envelope follower tracks the
+ * note's level and a smoothed gain stage ducks whatever sits above the
+ * threshold (harder the higher SUSTAIN), while LEVEL adds make-up gain.
+ * The envelope attacks in ~5 ms and releases over ~150 ms; the gain
+ * stage ducks in ~2 ms and lets go over ~60 ms.
+ */
+class CompressorPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        env_ = 0.0f;
+        gain_ = 1.0f;
+        setParams(sustain_, level_);
+    }
+
+    void setParams(float sustain, float level) {
+        sustain_ = std::clamp(sustain, 0.0f, 1.0f);
+        level_ = std::clamp(level, 0.0f, 1.0f);
+        threshold_ = 0.3f * std::pow(0.05f, sustain_);  // -10 dB .. -26 dB-ish
+        ratio_ = 2.0f + 6.0f * sustain_;                // 2:1 .. 8:1
+        makeup_ = 0.4f + 1.6f * level_;                 // 0.4 .. 2.0
+        env_attack_ = 1.0f - std::exp(-1.0f / (0.005f * fs_));
+        env_release_ = 1.0f - std::exp(-1.0f / (0.15f * fs_));
+        gain_attack_ = 1.0f - std::exp(-1.0f / (0.002f * fs_));
+        gain_release_ = 1.0f - std::exp(-1.0f / (0.06f * fs_));
+    }
+
+    float process(float in) override {
+        const float abs = std::fabs(in);
+        const float envCoef = abs > env_ ? env_attack_ : env_release_;
+        env_ += envCoef * (abs - env_);
+        float target = 1.0f;
+        if (env_ > threshold_) {
+            target = std::pow(threshold_ / env_, 1.0f / ratio_);
+        }
+        const float gainCoef = target < gain_ ? gain_attack_ : gain_release_;
+        gain_ += gainCoef * (target - gain_);
+        return in * gain_ * makeup_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float sustain_ = 0.5f;
+    float level_ = 0.5f;
+    float threshold_ = 0.05f;
+    float ratio_ = 5.0f;
+    float makeup_ = 1.2f;
+    float env_ = 0.0f;
+    float gain_ = 1.0f;
+    float env_attack_ = 0.01f;
+    float env_release_ = 0.0001f;
+    float gain_attack_ = 0.01f;
+    float gain_release_ = 0.0001f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -558,6 +614,7 @@ public:
         phaser_.prepare(fs_);
         tremolo_.prepare(fs_);
         vibrato_.prepare(fs_);
+        compressor_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -610,6 +667,11 @@ public:
         vibrato_.setParams(rate, depth, mix);
     }
 
+    void setCompressor(bool enabled, float sustain, float level) {
+        compressor_.enabled = enabled;
+        compressor_.setParams(sustain, level);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -641,6 +703,9 @@ public:
         if (vibrato_.enabled) {
             in = vibrato_.process(in);
         }
+        if (compressor_.enabled) {
+            in = compressor_.process(in);
+        }
         return in;
     }
 
@@ -656,6 +721,7 @@ private:
     PhaserPedal phaser_;
     TremoloPedal tremolo_;
     VibratoPedal vibrato_;
+    CompressorPedal compressor_;
 };
 
 } // namespace gte

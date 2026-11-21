@@ -150,5 +150,16 @@ public class PedalPanelController {
     vibDepth.valueProperty().bindBidirectional(ctx.vibratoDepthProperty());
     vibMix.valueProperty().bindBidirectional(ctx.vibratoMixProperty());
     pedalRow.getChildren().add(vibrato);
+
+    // COMPRESSOR: evens out the dynamics with make-up gain
+    Knob compSustain = new Knob(0, 1, 0.5, 44);
+    Knob compLevel = new Knob(0, 1, 0.5, 44);
+    PedalBox compressor = new PedalBox("COMPRESSOR");
+    compressor.addKnob(compSustain, "SUSTAIN");
+    compressor.addKnob(compLevel, "LEVEL");
+    compressor.enabledProperty().bindBidirectional(ctx.compEnabledProperty());
+    compSustain.valueProperty().bindBidirectional(ctx.compSustainProperty());
+    compLevel.valueProperty().bindBidirectional(ctx.compLevelProperty());
+    pedalRow.getChildren().add(compressor);
   }
 }
