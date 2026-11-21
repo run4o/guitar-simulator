@@ -306,6 +306,72 @@ private:
 };
 
 /*
+ * Flanger: the jet-plane whoosh — a very short modulated delay (1..10 ms
+ * sweep) whose output is FED BACK into the delay line, stacking notches
+ * into the spectrum that sweep up and down. Rate 0.05..2 Hz (log), depth
+ * up to 5 ms of deviation, feedback up to 0.9, mix = wet blend.
+ */
+class FlangerPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        const int capacity = static_cast<int>(sample_rate * 0.05f) + 16;
+        if (static_cast<int>(buffer_.size()) != capacity) {
+            buffer_.assign(capacity, 0.0f);
+        } else {
+            std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+        }
+        write_ = 0;
+        phase_ = 0.0f;
+        setParams(rate_, depth_, feedback_, mix_);
+    }
+
+    void setParams(float rate, float depth, float feedback, float mix) {
+        rate_ = std::clamp(rate, 0.0f, 1.0f);
+        depth_ = std::clamp(depth, 0.0f, 1.0f);
+        feedback_ = std::clamp(feedback, 0.0f, 0.9f);
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+        rate_hz_ = 0.05f * std::pow(160.0f, rate_); // 0.05 .. 8 Hz
+        base_samples_ = 0.005f * fs_;              // 5 ms center
+        depth_samples_ = depth_ * 0.005f * fs_;    // up to 5 ms
+    }
+
+    float process(float in) override {
+        const int size = static_cast<int>(buffer_.size());
+        phase_ += 6.2831853f * rate_hz_ / fs_;
+        if (phase_ > 6.2831853f) {
+            phase_ -= 6.2831853f;
+        }
+        float delay = base_samples_ + depth_samples_ * std::sin(phase_);
+        delay = std::clamp(delay, 1.0f, static_cast<float>(size) - 2.0f);
+        const int d = static_cast<int>(delay);
+        const float frac = delay - static_cast<float>(d);
+        int r0 = write_ - d;
+        if (r0 < 0) {
+            r0 += size;
+        }
+        int r1 = r0 - 1 < 0 ? size - 1 : r0 - 1;
+        const float wet = buffer_[r0] * (1.0f - frac) + buffer_[r1] * frac;
+        buffer_[write_] = in + wet * feedback_; // the regenerating comb
+        write_ = write_ + 1 == size ? 0 : write_ + 1;
+        return in + wet * mix_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float rate_ = 0.5f;
+    float depth_ = 0.6f;
+    float feedback_ = 0.4f;
+    float mix_ = 0.5f;
+    float rate_hz_ = 0.5f;
+    float base_samples_ = 220.0f;
+    float depth_samples_ = 220.0f;
+    float phase_ = 0.0f;
+    int write_ = 0;
+    std::vector<float> buffer_;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -319,6 +385,7 @@ public:
         overdrive_.prepare(fs_);
         delay_.prepare(fs_);
         chorus_.prepare(fs_);
+        flanger_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -351,6 +418,11 @@ public:
         chorus_.setParams(rate, depth, mix);
     }
 
+    void setFlanger(bool enabled, float rate, float depth, float feedback, float mix) {
+        flanger_.enabled = enabled;
+        flanger_.setParams(rate, depth, feedback, mix);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -370,6 +442,9 @@ public:
         if (chorus_.enabled) {
             in = chorus_.process(in);
         }
+        if (flanger_.enabled) {
+            in = flanger_.process(in);
+        }
         return in;
     }
 
@@ -381,6 +456,7 @@ private:
     DistortionPedal distortion_;
     DelayPedal delay_;
     ChorusPedal chorus_;
+    FlangerPedal flanger_;
 };
 
 } // namespace gte

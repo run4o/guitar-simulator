@@ -55,6 +55,11 @@ public final class AppContext {
   private final DoubleProperty chorusDepth = new SimpleDoubleProperty(0.5);
   private final DoubleProperty chorusMix = new SimpleDoubleProperty(0.5);
   private final BooleanProperty chorusEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty flangerRate = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty flangerDepth = new SimpleDoubleProperty(0.6);
+  private final DoubleProperty flangerFeedback = new SimpleDoubleProperty(0.4);
+  private final DoubleProperty flangerMix = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty flangerEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -70,7 +75,8 @@ public final class AppContext {
         distDrive, distTone, distLevel, distEnabled,
         fuzzAmount, fuzzVolume, fuzzEnabled,
         delayTime, delayFeedback, delayMix, delayEnabled,
-        chorusRate, chorusDepth, chorusMix, chorusEnabled}) {
+        chorusRate, chorusDepth, chorusMix, chorusEnabled,
+        flangerRate, flangerDepth, flangerFeedback, flangerMix, flangerEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -225,6 +231,26 @@ public final class AppContext {
     return chorusEnabled;
   }
 
+  public DoubleProperty flangerRateProperty() {
+    return flangerRate;
+  }
+
+  public DoubleProperty flangerDepthProperty() {
+    return flangerDepth;
+  }
+
+  public DoubleProperty flangerFeedbackProperty() {
+    return flangerFeedback;
+  }
+
+  public DoubleProperty flangerMixProperty() {
+    return flangerMix;
+  }
+
+  public BooleanProperty flangerEnabledProperty() {
+    return flangerEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -264,6 +290,11 @@ public final class AppContext {
     state.put("chorus.rate", Double.toString(chorusRate.get()));
     state.put("chorus.depth", Double.toString(chorusDepth.get()));
     state.put("chorus.mix", Double.toString(chorusMix.get()));
+    state.put("flanger.enabled", Boolean.toString(flangerEnabled.get()));
+    state.put("flanger.rate", Double.toString(flangerRate.get()));
+    state.put("flanger.depth", Double.toString(flangerDepth.get()));
+    state.put("flanger.feedback", Double.toString(flangerFeedback.get()));
+    state.put("flanger.mix", Double.toString(flangerMix.get()));
     return state;
   }
 
@@ -289,6 +320,11 @@ public final class AppContext {
     chorusRate.set(clamp(parse(state.getOrDefault("chorus.rate", "0.5")), 0, 1));
     chorusDepth.set(clamp(parse(state.getOrDefault("chorus.depth", "0.5")), 0, 1));
     chorusMix.set(clamp(parse(state.getOrDefault("chorus.mix", "0.5")), 0, 1));
+    flangerEnabled.set(Boolean.parseBoolean(state.getOrDefault("flanger.enabled", "false")));
+    flangerRate.set(clamp(parse(state.getOrDefault("flanger.rate", "0.5")), 0, 1));
+    flangerDepth.set(clamp(parse(state.getOrDefault("flanger.depth", "0.6")), 0, 1));
+    flangerFeedback.set(clamp(parse(state.getOrDefault("flanger.feedback", "0.4")), 0, 0.9));
+    flangerMix.set(clamp(parse(state.getOrDefault("flanger.mix", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -324,6 +360,9 @@ public final class AppContext {
         (float) delayFeedback.get(), (float) delayMix.get());
     engine.setChorus(chorusEnabled.get(), (float) chorusRate.get(),
         (float) chorusDepth.get(), (float) chorusMix.get());
+    engine.setFlanger(flangerEnabled.get(), (float) flangerRate.get(),
+        (float) flangerDepth.get(), (float) flangerFeedback.get(),
+        (float) flangerMix.get());
   }
 
   public void applyTuning(Tuning tuning) {

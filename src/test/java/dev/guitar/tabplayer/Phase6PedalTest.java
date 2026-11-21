@@ -348,4 +348,60 @@ class Phase6PedalTest {
         assertTrue(ratio > 1.5f && ratio < 15.0f,
                 "mix must scale the wobble copy: " + ratio);
     }
+
+    /* ---- flanger --------------------------------------------------------- */
+
+    /** Same fixture with flanger params (amp section neutral). */
+    private WavAnalysis.Wav renderFlanger(boolean enabled, float rate, float depth,
+                                           float feedback, float mix) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f));
+        Path wav = tempDir.resolve("flanger-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setFlanger(enabled, rate, depth, feedback, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedFlangerLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderFlanger(false, 0.9f, 0.9f, 0.8f, 0.9f);
+        WavAnalysis.Wav clean = renderFlanger(false, 0f, 0f, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed flanger must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void flangerFansSidebandsLikeTheChorus() throws Exception {
+        // the swept sub-15 ms delay phase-modulates the note (rate knob 1.0 -> 8 Hz); sum the sidebands over f0 +/- k*2 Hz
+        WavAnalysis.Wav clean = renderFlanger(false, 0f, 0f, 0f, 0f);
+        WavAnalysis.Wav flanged = renderFlanger(true, 1.0f, 0.9f, 0.2f, 1.0f);
+        float f0 = WavAnalysis.detectPitch(clean, 0.02, 0.15);
+        assertTrue(f0 > 100, "fixture must have a pitch: " + f0);
+        float cleanSb = 0;
+        float flangedSb = 0;
+        for (int k = 1; k <= 12; k++) {
+            cleanSb += WavAnalysis.toneMagnitude(clean, 0.05, 0.30, f0 + k * 8.0);
+            flangedSb += WavAnalysis.toneMagnitude(flanged, 0.05, 0.30, f0 + k * 8.0);
+        }
+        assertTrue(flangedSb > 3.0f * cleanSb,
+                "flanger must create modulation sidebands: clean=" + cleanSb
+                        + " flanger=" + flangedSb);
+    }
+
+    @Test
+    void flangerFeedbackDeepensTheComb() throws Exception {
+        // the regenerating loop keeps the flange ringing after the dry
+        // note decays (0.15-0.30 s is where the loop's tail dominates)
+        WavAnalysis.Wav noFb = renderFlanger(true, 1.0f, 0.9f, 0.0f, 1.0f);
+        WavAnalysis.Wav maxFb = renderFlanger(true, 1.0f, 0.9f, 0.9f, 1.0f);
+        float low = WavAnalysis.rms(noFb, 0.15, 0.30);
+        float high = WavAnalysis.rms(maxFb, 0.15, 0.30);
+        assertTrue(high > 1.6f * low,
+                "feedback must keep the comb ringing: " + high + " vs " + low);
+    }
 }

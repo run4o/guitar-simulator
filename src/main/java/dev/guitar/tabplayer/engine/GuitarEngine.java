@@ -48,6 +48,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setFuzzFn;
   private final MethodHandle setDelayFn;
   private final MethodHandle setChorusFn;
+  private final MethodHandle setFlangerFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -100,6 +101,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setChorusFn = linker.downcallHandle(symbols.find("guitar_engine_set_chorus").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
+      setFlangerFn = linker.downcallHandle(symbols.find("guitar_engine_set_flanger").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -437,6 +440,18 @@ public final class GuitarEngine implements AutoCloseable {
       setChorusFn.invokeExact(enabled, rate, depth, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_chorus failed", t);
+    }
+  }
+
+  /**
+   * Flanger pedal: regenerating short-delay comb (rate/depth 0..1,
+   * feedback 0..0.9, mix 0..1), after the chorus, on both paths.
+   */
+  public void setFlanger(boolean enabled, float rate, float depth, float feedback, float mix) {
+    try {
+      setFlangerFn.invokeExact(enabled, rate, depth, feedback, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_flanger failed", t);
     }
   }
 

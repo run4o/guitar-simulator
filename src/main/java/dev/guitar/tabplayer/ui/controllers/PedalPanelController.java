@@ -91,5 +91,22 @@ public class PedalPanelController {
     chorusDepth.valueProperty().bindBidirectional(ctx.chorusDepthProperty());
     chorusMix.valueProperty().bindBidirectional(ctx.chorusMixProperty());
     pedalRow.getChildren().add(chorus);
+
+    // FLANGER: regenerating jet comb
+    Knob flRate = new Knob(0, 1, 0.5, 44);
+    Knob flDepth = new Knob(0, 1, 0.6, 44);
+    Knob flFb = new Knob(0, 0.9, 0.4, 44);
+    Knob flMix = new Knob(0, 1, 0.5, 44);
+    PedalBox flanger = new PedalBox("FLANGER");
+    flanger.addKnob(flRate, "RATE");
+    flanger.addKnob(flDepth, "DEPTH");
+    flanger.addKnob(flFb, "FEEDBACK");
+    flanger.addKnob(flMix, "MIX");
+    flanger.enabledProperty().bindBidirectional(ctx.flangerEnabledProperty());
+    flRate.valueProperty().bindBidirectional(ctx.flangerRateProperty());
+    flDepth.valueProperty().bindBidirectional(ctx.flangerDepthProperty());
+    flFb.valueProperty().bindBidirectional(ctx.flangerFeedbackProperty());
+    flMix.valueProperty().bindBidirectional(ctx.flangerMixProperty());
+    pedalRow.getChildren().add(flanger);
   }
 }

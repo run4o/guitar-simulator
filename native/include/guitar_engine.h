@@ -94,6 +94,7 @@ GTE_EXPORT void      guitar_engine_set_distortion(bool enabled, float drive, flo
 GTE_EXPORT void      guitar_engine_set_fuzz(bool enabled, float fuzz, float volume);
 GTE_EXPORT void      guitar_engine_set_delay(bool enabled, float time, float feedback, float mix);
 GTE_EXPORT void      guitar_engine_set_chorus(bool enabled, float rate, float depth, float mix);
+GTE_EXPORT void      guitar_engine_set_flanger(bool enabled, float rate, float depth, float feedback, float mix);
 
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);
