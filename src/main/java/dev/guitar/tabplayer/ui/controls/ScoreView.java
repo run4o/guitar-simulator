@@ -31,6 +31,7 @@ public class ScoreView extends Canvas {
   private static final int HEADER_H = 24;
   private static final int PADDING = 6;
   private static final double EDGE_L = 2;
+  private static final double TAIL_CAP = 80; // px where the sustain taper ends
 
   private TabParser.TabTimeline timeline;
   private final String[] laneLabels = {"-", "-", "-", "-", "-", "-"};
@@ -244,23 +245,55 @@ public class ScoreView extends Canvas {
       double cellW = cellWidth(cmd, bt, barPps, timesByString);
       double cellH = Math.min(lh - 4, 20.0);
       double onsetW = Math.min(cellW, 24.0); // the fret digit stays at the onset
+      java.util.List<Double> times = timesByString.get(cmd.stringIndex());
       switch (cmd.type()) {
         case RenderCommandType.PLUCK -> {
-          g.setFill(CYAN);
-          g.fillRoundRect(x, laneCenter - cellH / 2, cellW, cellH, 3, 3);
-          g.setFill(INK);
-          g.setFont(Font.font("Share Tech Mono", cellH >= 18 ? 12 : 10));
-          g.setTextBaseline(VPos.CENTER);
-          g.fillText(String.valueOf(cmd.fret()), x + onsetW / 2, laneCenter);
+          boolean palm = cmd.b() >= 0.5f;
+          boolean ghost = Math.abs(cmd.a() - 0.45f) < 0.02f;
+          boolean accent = !ghost && cmd.a() >= 0.95f;
+          drawSustainCell(g, x, laneCenter, cellW, cellH, onsetW, String.valueOf(cmd.fret()),
+              palm || ghost, palm);
+          if (palm) {
+            drawTag(g, "PM", x + 1, laneCenter - cellH / 2 - 7, SILVER);
+          }
+          if (accent) {
+            drawTag(g, ">", x + onsetW - 7, laneCenter - cellH / 2 - 7, SILVER);
+          }
         }
         case RenderCommandType.LEGATO -> {
+          boolean slide = Math.abs(cmd.a() - 0.15f) < 0.01f;
+          // legato keeps its outline (vs the plucked solid block) with a
+          // hairline tail for the hold
           g.setStroke(CYAN);
           g.setLineWidth(1.5);
-          g.strokeRoundRect(x, laneCenter - cellH / 2, cellW, cellH, 3, 3);
+          g.strokeRoundRect(x, laneCenter - cellH / 2, onsetW, cellH, 3, 3);
+          if (cellW > onsetW + 2) {
+            g.setStroke(Color.rgb(0, 188, 212, 0.45));
+            g.setLineWidth(1);
+            g.strokeLine(x + onsetW, laneCenter, x + cellW, laneCenter);
+          }
           g.setFill(CYAN);
           g.setFont(Font.font("Share Tech Mono", cellH >= 18 ? 12 : 10));
           g.setTextBaseline(VPos.CENTER);
           g.fillText(String.valueOf(cmd.fret()), x + onsetW / 2, laneCenter);
+          // a slur over the approach marks h/p/t (or a glide for slides)
+          double prev = previousTime(times, cmd.timeOffset());
+          if (prev >= 0 && !slide) {
+            double px = xForTime(prev);
+            double midX = (px + x) / 2.0;
+            g.setStroke(CYAN);
+            g.setLineWidth(1.2);
+            strokeCurve(g, px + 2, laneCenter - cellH / 2 - 2, midX, laneCenter - cellH / 2 - 9,
+                x - 2, laneCenter - cellH / 2 - 2);
+          }
+          if (slide && prev >= 0) {
+            double px = xForTime(prev);
+            g.setStroke(CYAN);
+            g.setLineWidth(1.5);
+            g.strokeLine(px + 3, laneCenter - cellH / 2 - 4, x - 2, laneCenter);
+            g.fillPolygon(new double[]{x - 7, x - 1, x - 7},
+                new double[]{laneCenter - 4, laneCenter, laneCenter + 4}, 3);
+          }
         }
         case RenderCommandType.BEND -> {
           g.setFill(Color.web("#E01212"));
@@ -271,16 +304,46 @@ public class ScoreView extends Canvas {
             g.fillPolygon(new double[]{x, x + 9, x + 4.5},
                 new double[]{laneCenter - 5, laneCenter - 5, laneCenter + 5}, 3);
           }
+          // the bend curve rides over the gap to the next note
+          double next = nextTime(times, cmd.timeOffset());
+          double endX = next >= 0 ? xForTime(next) : x + 22;
+          g.setStroke(Color.web("#E01212"));
+          g.setLineWidth(1.5);
+          strokeCurve(g, x + 5, laneCenter, (x + endX) / 2, laneCenter - 12,
+              Math.min(endX, x + 34), laneCenter - 6);
           g.setFont(Font.font("Share Tech Mono", 11));
           g.setTextBaseline(VPos.CENTER);
           int semis = Math.round(cmd.a());
-          g.fillText((semis >= 0 ? "+" : "") + semis, x + 12, laneCenter);
+          g.fillText((semis >= 0 ? "+" : "") + semis, x + 12, laneCenter - 16);
+        }
+        case RenderCommandType.HARMONIC -> {
+          g.setStroke(Color.web("#9FE8F2"));
+          g.setLineWidth(1.5);
+          g.strokeRoundRect(x, laneCenter - cellH / 2, onsetW, cellH, 3, 3);
+          g.setFill(Color.web("#9FE8F2"));
+          g.setFont(Font.font("Share Tech Mono", cellH >= 18 ? 12 : 10));
+          g.setTextBaseline(VPos.CENTER);
+          g.fillText("<" + cmd.fret() + ">", x + onsetW / 2 - 4, laneCenter);
         }
         case RenderCommandType.MUTE -> {
           g.setStroke(SILVER);
           g.setLineWidth(1.5);
           g.strokeLine(x - 4, laneCenter - 4, x + 4, laneCenter + 4);
           g.strokeLine(x - 4, laneCenter + 4, x + 4, laneCenter - 4);
+        }
+        case RenderCommandType.VIBRATO -> {
+          // wave over the note the marker follows
+          double onset = previousTime(times, cmd.timeOffset());
+          if (onset >= 0) {
+            double fromX = xForTime(onset);
+            g.setStroke(Color.web("#9FE8F2"));
+            g.setLineWidth(1.2);
+            double waveY = laneCenter - cellH / 2 - 4;
+            for (double wx = fromX; wx < x - 4; wx += 8) {
+              double seg = Math.min(8, x - 4 - wx);
+              strokeCurve(g, wx, waveY + 3, wx + seg / 2, waveY - 3, wx + seg, waveY + 3);
+            }
+          }
         }
         default -> {
         }
@@ -340,10 +403,27 @@ public class ScoreView extends Canvas {
     return len > 0 ? len : layout.barSeconds;
   }
 
-  /** Bar containing the given absolute time. */
+  /** Bar containing the given absolute time (bars can differ in length). */
   private int eventBar(double timeOffset) {
-    int bar = (int) Math.floor(timeOffset / layout.barSeconds);
-    return Math.max(0, Math.min(layout.barCount - 1, bar));
+    if (timeline == null || timeline.barTimes().isEmpty()) {
+      return 0;
+    }
+    int lo = 0;
+    int hi = layout.barCount - 1;
+    int ans = Math.max(0, hi);
+    while (lo <= hi) {
+      int mid = (lo + hi) >>> 1;
+      TabParser.BarTime bt = timeline.barTimes().get(mid);
+      if (timeOffset < bt.startSeconds()) {
+        hi = mid - 1;
+      } else if (timeOffset >= bt.endSeconds() && mid < layout.barCount - 1) {
+        lo = mid + 1;
+      } else {
+        ans = mid;
+        break;
+      }
+    }
+    return ans;
   }
 
   /**
@@ -367,6 +447,112 @@ public class ScoreView extends Canvas {
   }
 
   /**
+   * Sustain cell: a solid onset block with the digit, a taper that fades
+   * over the next stretch, and a hairline to the note's real end. Long
+   * holds repeat the digit (the tab's held-note convention) so the block
+   * never reads as one blank slab.
+   */
+  private void drawSustainCell(GraphicsContext g, double x, double laneCenter, double cellW,
+      double cellH, double onsetW, String label, boolean hollow, boolean dimmed) {
+    double top = laneCenter - cellH / 2;
+    if (hollow) {
+      g.setStroke(dimmed ? Color.web("#0E7A8A") : CYAN);
+      g.setLineWidth(1.2);
+      g.strokeRoundRect(x, top, onsetW, cellH, 3, 3);
+    } else {
+      g.setFill(dimmed ? Color.web("#0E7A8A") : CYAN);
+      g.fillRoundRect(x, top, onsetW, cellH, 3, 3);
+    }
+    if (cellW > onsetW + 4) {
+      double taperEnd = Math.min(cellW, onsetW + TAIL_CAP);
+      for (double tx = onsetW; tx < taperEnd; tx += 3) {
+        double alpha = 0.5 * (1 - (tx - onsetW) / (taperEnd - onsetW));
+        g.setFill(Color.rgb(0, 188, 212, Math.max(0.06, alpha)));
+        g.fillRect(x + tx, top, 3, cellH);
+      }
+      if (cellW > taperEnd + 2) {
+        g.setStroke(Color.rgb(0, 188, 212, 0.4));
+        g.setLineWidth(1);
+        g.strokeLine(x + taperEnd, laneCenter, x + cellW, laneCenter);
+      }
+    }
+    if (cellW > 48) {
+      // the digit repeats across long holds, like the tab source
+      g.setFill(Color.rgb(255, 255, 255, 0.4));
+      g.setFont(Font.font("Share Tech Mono", 10));
+      g.setTextBaseline(VPos.CENTER);
+      for (double dx = onsetW + 26; dx < cellW - 8; dx += 28) {
+        g.fillText(label, x + dx, laneCenter);
+      }
+    }
+    g.setFill(hollow || dimmed ? SILVER : INK);
+    g.setFont(Font.font("Share Tech Mono", cellH >= 18 ? 12 : 10));
+    g.setTextBaseline(VPos.CENTER);
+    g.fillText(label, x + onsetW / 2, laneCenter);
+  }
+
+  /** Small label floating above a cell (PM, accents, articulation tags). */
+  private void drawTag(GraphicsContext g, String text, double x, double y, Color color) {
+    g.setFill(color);
+    g.setFont(Font.font("Share Tech Mono", 10));
+    g.setTextBaseline(VPos.TOP);
+    g.fillText(text, x, y);
+    g.setTextBaseline(VPos.CENTER);
+  }
+
+  /** The note time just before `t` on a string, or -1. */
+  private double previousTime(java.util.List<Double> times, double t) {
+    if (times == null) {
+      return -1;
+    }
+    double best = -1;
+    for (double time : times) {
+      if (time < t - 0.001) {
+        best = time;
+      } else {
+        break;
+      }
+    }
+    return best;
+  }
+
+  /** The note time just after `t` on a string, or -1. */
+  private double nextTime(java.util.List<Double> times, double t) {
+    if (times != null) {
+      for (double time : times) {
+        if (time > t + 0.001) {
+          return time;
+        }
+      }
+    }
+    return -1;
+  }
+
+  /** Canvas x of an absolute time (same per-bar mapping the events use). */
+  private double xForTime(double t) {
+    int bar = eventBar(t);
+    TabParser.BarTime bt = timeline.barTimes().get(bar);
+    double barPps = layout.barPx / barSecondsPx(bar);
+    return layout.xForCol(layout.colForBar(bar)) + (t - bt.startSeconds()) * barPps;
+  }
+
+  /** Quadratic bezier (x0,y0 control cx,cy end x1,y1) drawn as short segments. */
+  private void strokeCurve(GraphicsContext g, double x0, double y0, double cx, double cy,
+      double x1, double y1) {
+    double px = x0;
+    double py = y0;
+    for (int i = 1; i <= 8; i++) {
+      double s = i / 8.0;
+      double inv = 1 - s;
+      double qx = inv * inv * x0 + 2 * inv * s * cx + s * s * x1;
+      double qy = inv * inv * y0 + 2 * inv * s * cy + s * s * y1;
+      g.strokeLine(px, py, qx, qy);
+      px = qx;
+      py = qy;
+    }
+  }
+
+  /**
    * Numeric constants mirroring GuitarEngine.EVENT_* (avoids a doc dependency).
    */
   private static final class RenderCommandType {
@@ -375,5 +561,6 @@ public class ScoreView extends Canvas {
     static final int BEND = 2;
     static final int MUTE = 3;
     static final int VIBRATO = 6;
+    static final int HARMONIC = 7;
   }
 }
