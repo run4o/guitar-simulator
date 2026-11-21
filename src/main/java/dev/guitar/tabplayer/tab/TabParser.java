@@ -85,6 +85,8 @@ public final class TabParser {
     BEND,
     BEND_RELEASE,
     VIBRATO,
+    REPEAT_START,
+    REPEAT_END,
     DEAD,
     BAR,
     HARMONIC
@@ -146,6 +148,35 @@ public final class TabParser {
     }
     Set<String> warnings = new LinkedHashSet<>();
     List<SystemBlock> systems = parseSystems(text, warnings);
+
+    // expand |: ... :|xN sections; alternate endings are not represented in
+    // the ASCII layout, so every pass plays the full section
+    Map<Integer, int[]> expandedSigs = timeSignatures == null ? null : new TreeMap<>(timeSignatures);
+    int runningBars = 0;
+    for (SystemBlock system : systems) {
+      RepeatInfo info = expandRepeats(system, warnings);
+      if (info != null && expandedSigs != null) {
+        int sectionStart = runningBars + info.sectionStartLocal();
+        int sectionEnd = sectionStart + info.sectionBars() - 1;
+        Map<Integer, int[]> shifted = new TreeMap<>();
+        for (Map.Entry<Integer, int[]> e : expandedSigs.entrySet()) {
+          int idx = e.getKey();
+          shifted.put(idx <= sectionEnd ? idx : idx + (info.plays() - 1) * info.sectionBars(), e.getValue());
+        }
+        for (int rep = 1; rep < info.plays(); rep++) {
+          for (int b = 0; b < info.sectionBars(); b++) {
+            int[] meter = expandedSigs.get(sectionStart + b);
+            if (meter != null) {
+              shifted.put(sectionEnd + (rep - 1) * info.sectionBars() + 1 + b, meter);
+            }
+          }
+        }
+        expandedSigs = shifted;
+      }
+      int barCount = barRanges(system).size();
+      runningBars += barCount;
+    }
+    timeSignatures = expandedSigs;
 
     List<TabEvent> events = new ArrayList<>();
     List<BarTime> barTimes = new ArrayList<>();
@@ -481,8 +512,34 @@ public final class TabParser {
       } else if (c == ')' || c == '>') {
         i++;
       } else if (c == '|') {
-        track.barColumns.add(i);
-        i++;
+        if (i + 1 < n && content.charAt(i + 1) == ':') {
+          // |: repeat section start
+          track.tokens.add(new Token(i, Kind.REPEAT_START, -1));
+          track.barColumns.add(i);
+          i += 2;
+        } else {
+          track.barColumns.add(i);
+          i++;
+        }
+      } else if (c == ':') {
+        if (i + 1 < n && content.charAt(i + 1) == '|') {
+          // :| repeat section end, optionally with an xN total-play count
+          int plays = 2;
+          int j = i + 2;
+          if (j < n && (content.charAt(j) == 'x' || content.charAt(j) == 'X')) {
+            int digits = digitsAt(content, j + 1);
+            if (digits > 0) {
+              plays = Integer.parseInt(content, j + 1, j + 1 + digits, 10);
+              j += 1 + digits;
+            }
+          }
+          track.tokens.add(new Token(i, Kind.REPEAT_END, plays));
+          track.barColumns.add(i + 1);
+          i = j;
+        } else {
+          warnings.add("Unrecognized character ':' ignored");
+          i++;
+        }
       } else if ((c == 'P' || c == 'p') && i + 1 < n && (content.charAt(i + 1) == 'M' || content.charAt(i + 1) ==
                                                                                          'm')) {
         if (palmMuteStart < 0) {
@@ -551,6 +608,116 @@ public final class TabParser {
       }
     }
     return beat / 4.0; // uniform density: one column = one sixteenth
+  }
+
+  /** Repeat-section expansion result (local to its system). */
+  private record RepeatInfo(int sectionStartLocal, int sectionBars, int plays) {
+  }
+
+  /**
+   * Expands |: section :|xN in place: the section's tokens, bar dividers and
+   * palm-mute ranges are duplicated (plays - 1) extra times. Returns null
+   * when the system has no complete repeat pair.
+   */
+  private static RepeatInfo expandRepeats(SystemBlock system, Set<String> warnings) {
+    Token startTok = null;
+    Token endTok = null;
+    outer:
+    for (StringTrack track : system.tracks) {
+      if (track == null) {
+        continue;
+      }
+      Token localStart = null;
+      for (Token t : track.tokens) {
+        if (t.kind() == Kind.REPEAT_START) {
+          localStart = t;
+        } else if (t.kind() == Kind.REPEAT_END && localStart != null) {
+          startTok = localStart;
+          endTok = t;
+          break outer;
+        }
+      }
+    }
+    if (startTok == null || endTok == null) {
+      return null;
+    }
+    int plays = Math.max(2, endTok.fret());
+    int c1 = startTok.column();
+    int c2 = endTok.column();
+    int span = c2 + 1 - c1; // including the section's closing divider column
+    if (span <= 0) {
+      return null;
+    }
+    for (StringTrack track : system.tracks) {
+      if (track == null) {
+        continue;
+      }
+      List<Token> section = new ArrayList<>();
+      for (Token t : track.tokens) {
+        if (t.column() >= c1 && t.column() < c2 && t.kind() != Kind.REPEAT_START) {
+          section.add(t);
+        }
+      }
+      List<Token> newTokens = new ArrayList<>(track.tokens.size() + (plays - 1) * section.size());
+      for (Token t : track.tokens) {
+        newTokens.add(t);
+        if (t == endTok) {
+          for (int rep = 1; rep < plays; rep++) {
+            for (Token u : section) {
+              newTokens.add(new Token(u.column() + rep * span, u.kind(), u.fret()));
+            }
+          }
+        }
+      }
+      track.tokens.clear();
+      track.tokens.addAll(newTokens);
+
+      List<Integer> newBars = new ArrayList<>(track.barColumns.size() + (plays - 1));
+      for (int col : track.barColumns) {
+        newBars.add(col);
+        if (col > c1 && col <= c2 + 1) {
+          for (int rep = 1; rep < plays; rep++) {
+            newBars.add(col + rep * span);
+          }
+        }
+      }
+      track.barColumns.clear();
+      track.barColumns.addAll(newBars);
+
+      List<int[]> newPm = new ArrayList<>(track.palmMuteRanges.size() + (plays - 1));
+      for (int[] range : track.palmMuteRanges) {
+        newPm.add(range);
+        if (range[0] >= c1 && range[0] < c2) {
+          for (int rep = 1; rep < plays; rep++) {
+            newPm.add(new int[]{range[0] + rep * span, range[1] + rep * span});
+          }
+        }
+      }
+      track.palmMuteRanges.clear();
+      track.palmMuteRanges.addAll(newPm);
+    }
+    // the section's first bar = the divider at c1; its bars run to the
+    // section's closing divider at c2 + 1
+    int startLocal = 0;
+    TreeSet<Integer> sourceBars = new TreeSet<>();
+    for (StringTrack track : system.tracks) {
+      if (track != null) {
+        // the bar columns were already expanded; recompute from the layout
+        sourceBars.addAll(track.barColumns);
+      }
+    }
+    for (int col : sourceBars) {
+      if (col < c1) {
+        startLocal++;
+      }
+    }
+    int sectionBars = 0;
+    for (int col : sourceBars) {
+      if (col > c1 && col <= c2 + 1) {
+        sectionBars++;
+      }
+    }
+    return new RepeatInfo(startLocal, Math.max(1, sectionBars), plays);
   }
 
   private static void compileSystem(SystemBlock system, double start, double tick, List<TabEvent> out,

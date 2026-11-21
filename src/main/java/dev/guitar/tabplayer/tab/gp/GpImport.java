@@ -167,6 +167,10 @@ public final class GpImport {
   private static final class MasterBar {
     int numerator = 4;
     int denominator = 4;
+    boolean repeatStart;
+    boolean repeatEnd;
+    int repeatPlays = 2;  // total play count for a repeat-end bar
+    int altEndingMask;    // bitmask of alternate endings this bar closes (0 = all)
   }
 
   private static final class Track {
@@ -346,10 +350,12 @@ public final class GpImport {
         bar.denominator = r.u1();
       }
       if ((flags & 0x04) != 0) {
-        // repeat start (ignored in v1)
+        bar.repeatStart = true;
       }
       if ((flags & 0x08) != 0) {
-        r.u1(); // repeat count (+1 for <500, ignored in v1)
+        bar.repeatEnd = true;
+        // the byte counts the extra passes; the section plays count+1 times
+        bar.repeatPlays = Math.max(2, r.u1() + 1);
       }
       if ((flags & 0x10) != 0 && version < 500) {
         r.u1(); // alternate endings mask (pre-GP5)
@@ -366,7 +372,7 @@ public final class GpImport {
         r.skip(4); // time signature beams
       }
       if (version >= 500) {
-        r.u1(); // alternate endings (GP5)
+        bar.altEndingMask = r.u1(); // alternate endings bitmask (GP5)
         r.u1(); // triplet feel
         r.u1(); // unknown
       }
@@ -895,8 +901,9 @@ public final class GpImport {
       while (barIndex < barCount) {
         int barsInLine = Math.min(4, barCount - barIndex);
         StringBuilder[] lines = new StringBuilder[6];
+        String lead = masterBars.get(barIndex).repeatStart ? "|:" : "|";
         for (int s = 0; s < 6; s++) {
-          lines[s] = new StringBuilder("EADGBe".charAt(s) + "|");
+          lines[s] = new StringBuilder("EADGBe".charAt(s) + lead);
         }
         for (int b = 0; b < barsInLine; b++) {
           MasterBar mb = masterBars.get(barIndex + b);
@@ -908,8 +915,14 @@ public final class GpImport {
             java.util.Arrays.fill(cells[s], ' ');
           }
           renderBarInto(cells, beats, mb);
+          // the divider after a bar opens the next section (|:) or closes
+          // this one (:|, optionally :|xN with the total play count)
+          MasterBar next = barIndex + b + 1 < barCount ? masterBars.get(barIndex + b + 1) : null;
+          String pipe = mb.repeatEnd
+              ? (mb.repeatPlays > 2 ? ":|x" + mb.repeatPlays : ":|")
+              : next != null && next.repeatStart ? "|:" : "|";
           for (int s = 0; s < 6; s++) {
-            lines[s].append(cells[s]).append('|');
+            lines[s].append(cells[s]).append(pipe);
           }
         }
         for (int s = 0; s < 6; s++) {

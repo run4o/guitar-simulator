@@ -272,6 +272,26 @@ class Phase3ParserTest {
     }
 
     @Test
+    void repeatsDuplicateSectionWithCount() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--3-5-|:--7-8-|--10-:|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        // bar 1 once (2 notes), then the 2-bar section twice (3 notes x 2)
+        assertEquals(8, plucks.size());
+        // the section restarts: the 6th pluck is the section's first note again
+        assertEquals(7, plucks.get(5).fret());
+        // and it plays later than the first pass
+        assertTrue(plucks.get(5).timeOffset() > plucks.get(2).timeOffset(), "repeat restart time");
+    }
+
+    @Test
+    void repeatsHonorXCount() {
+        TabParser.TabTimeline timeline = TabParser.compile("e|--3-|:--5-:|x3|\n");
+        List<RenderCommand> plucks = ofType(timeline, GuitarEngine.EVENT_PLUCK);
+        // bar 1 once, bars 2 three plays -> 4 plucks
+        assertEquals(4, plucks.size());
+    }
+
+    @Test
     void harmonicMarkersProduceHarmonicPluck() {
         TabParser.TabTimeline timeline = TabParser.compile("e|--(12)--5--|\n");
         List<RenderCommand> harmonics = ofType(timeline, GuitarEngine.EVENT_HARMONIC);
