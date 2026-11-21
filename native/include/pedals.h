@@ -597,6 +597,55 @@ private:
 };
 
 /*
+ * EQ: sculpts the tone with three bands — a 250 Hz low split (BASS), a
+ * 1500 Hz split of the remainder (MID), and whatever is left (TREBLE).
+ * Each knob is about +/-12 dB of boost/cut on its band's share; all three
+ * flat recombine to the exact input (the bands sum to the signal).
+ */
+class EqualizerPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        lp1_ = lp2_ = 0.0f;
+        setParams(bass_, mid_, treble_);
+    }
+
+    void setParams(float bass, float mid, float treble) {
+        bass_ = std::clamp(bass, 0.0f, 1.0f);
+        mid_ = std::clamp(mid, 0.0f, 1.0f);
+        treble_ = std::clamp(treble, 0.0f, 1.0f);
+        g_bass_ = (bass_ * 2.0f - 1.0f) * 0.75f;   // -0.75 .. +0.75
+        g_mid_ = (mid_ * 2.0f - 1.0f) * 0.75f;
+        g_treb_ = (treble_ * 2.0f - 1.0f) * 0.75f;
+        lp1_coef_ = 1.0f - std::exp(-6.2831853f * 250.0f / fs_);
+        lp2_coef_ = 1.0f - std::exp(-6.2831853f * 1500.0f / fs_);
+    }
+
+    float process(float in) override {
+        lp1_ += lp1_coef_ * (in - lp1_);
+        const float bass = lp1_;
+        const float rest = in - lp1_;
+        lp2_ += lp2_coef_ * (rest - lp2_);
+        const float midBand = lp2_;
+        const float treble = rest - lp2_;
+        return in + g_bass_ * bass + g_mid_ * midBand + g_treb_ * treble;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float bass_ = 0.5f;
+    float mid_ = 0.5f;
+    float treble_ = 0.5f;
+    float g_bass_ = 0.0f;
+    float g_mid_ = 0.0f;
+    float g_treb_ = 0.0f;
+    float lp1_coef_ = 0.035f;
+    float lp2_coef_ = 0.19f;
+    float lp1_ = 0.0f;
+    float lp2_ = 0.0f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -615,6 +664,7 @@ public:
         tremolo_.prepare(fs_);
         vibrato_.prepare(fs_);
         compressor_.prepare(fs_);
+        eq_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -672,6 +722,11 @@ public:
         compressor_.setParams(sustain, level);
     }
 
+    void setEq(bool enabled, float bass, float mid, float treble) {
+        eq_.enabled = enabled;
+        eq_.setParams(bass, mid, treble);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -706,6 +761,9 @@ public:
         if (compressor_.enabled) {
             in = compressor_.process(in);
         }
+        if (eq_.enabled) {
+            in = eq_.process(in);
+        }
         return in;
     }
 
@@ -722,6 +780,7 @@ private:
     TremoloPedal tremolo_;
     VibratoPedal vibrato_;
     CompressorPedal compressor_;
+    EqualizerPedal eq_;
 };
 
 } // namespace gte

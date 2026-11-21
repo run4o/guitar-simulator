@@ -144,6 +144,10 @@ struct PedalParams {
     std::atomic<bool> comp_enabled{false};
     std::atomic<float> comp_sustain{0.5f};
     std::atomic<float> comp_level{0.5f};
+    std::atomic<bool> eq_enabled{false};
+    std::atomic<float> eq_bass{0.5f};
+    std::atomic<float> eq_mid{0.5f};
+    std::atomic<float> eq_treble{0.5f};
 };
 PedalParams g_pedals;
 
@@ -241,7 +245,7 @@ void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
     }
 }
 
-void sync_pedal_params(gte::PedalChain& chain, float cached[40]) {
+void sync_pedal_params(gte::PedalChain& chain, float cached[44]) {
     const float boostOn = g_pedals.boost_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     const float boostGain = g_pedals.boost_gain.load(std::memory_order_relaxed);
     const float fuzzOn = g_pedals.fuzz_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
@@ -282,6 +286,10 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[40]) {
     const float compOn = g_pedals.comp_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
     const float compSustain = g_pedals.comp_sustain.load(std::memory_order_relaxed);
     const float compLevel = g_pedals.comp_level.load(std::memory_order_relaxed);
+    const float eqOn = g_pedals.eq_enabled.load(std::memory_order_relaxed) ? 1.0f : 0.0f;
+    const float eqBass = g_pedals.eq_bass.load(std::memory_order_relaxed);
+    const float eqMid = g_pedals.eq_mid.load(std::memory_order_relaxed);
+    const float eqTreb = g_pedals.eq_treble.load(std::memory_order_relaxed);
     if (boostOn != cached[0] || boostGain != cached[1] || fuzzOn != cached[2]
         || fuzzAmt != cached[3] || fuzzVol != cached[4] || odOn != cached[5]
         || odDrive != cached[6] || odTone != cached[7] || distOn != cached[8]
@@ -297,7 +305,9 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[40]) {
         || tremOn != cached[30] || tremRate != cached[31] || tremDepth != cached[32]
         || vibOn != cached[33] || vibRate != cached[34] || vibDepth != cached[35]
         || vibMix != cached[36]
-        || compOn != cached[37] || compSustain != cached[38] || compLevel != cached[39]) {
+        || compOn != cached[37] || compSustain != cached[38] || compLevel != cached[39]
+        || eqOn != cached[40] || eqBass != cached[41] || eqMid != cached[42]
+        || eqTreb != cached[43]) {
         chain.setBoost(boostOn > 0.5f, boostGain);
         chain.setFuzz(fuzzOn > 0.5f, fuzzAmt, fuzzVol);
         chain.setOverdrive(odOn > 0.5f, odDrive, odTone);
@@ -309,6 +319,7 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[40]) {
         chain.setTremolo(tremOn > 0.5f, tremRate, tremDepth);
         chain.setVibrato(vibOn > 0.5f, vibRate, vibDepth, vibMix);
         chain.setCompressor(compOn > 0.5f, compSustain, compLevel);
+        chain.setEq(eqOn > 0.5f, eqBass, eqMid, eqTreb);
         cached[0] = boostOn;
         cached[1] = boostGain;
         cached[2] = fuzzOn;
@@ -349,6 +360,10 @@ void sync_pedal_params(gte::PedalChain& chain, float cached[40]) {
         cached[37] = compOn;
         cached[38] = compSustain;
         cached[39] = compLevel;
+        cached[40] = eqOn;
+        cached[41] = eqBass;
+        cached[42] = eqMid;
+        cached[43] = eqTreb;
     }
 }
 
@@ -363,8 +378,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
     sync_fx_params(s.fx_l, fx_cached_l);
     sync_fx_params(s.fx_r, fx_cached_r);
-    static thread_local float pedal_cached_l[40] = {     -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
-    static thread_local float pedal_cached_r[40] = {     -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_l[44] = {      -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float pedal_cached_r[44] = {      -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f };
     sync_pedal_params(s.pedals_l, pedal_cached_l);
     sync_pedal_params(s.pedals_r, pedal_cached_r);
 
@@ -619,6 +634,15 @@ GTE_EXPORT void guitar_engine_set_compressor(bool enabled, float sustain, float 
     g_pedals.comp_level.store(std::clamp(level, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
+/* Pedalboard: 3-band EQ (bass/mid/treble normalized 0..1, 0.5 = flat),
+ * after the compressor. */
+GTE_EXPORT void guitar_engine_set_eq(bool enabled, float bass, float mid, float treble) {
+    g_pedals.eq_enabled.store(enabled, std::memory_order_relaxed);
+    g_pedals.eq_bass.store(std::clamp(bass, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.eq_mid.store(std::clamp(mid, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.eq_treble.store(std::clamp(treble, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -662,7 +686,7 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
     gte::PedalChain pedals;
     pedals.prepare(fs);
     {
-        float cached[40] = {     -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
+        float cached[44] = {      -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f };
         sync_pedal_params(pedals, cached);
     }
 

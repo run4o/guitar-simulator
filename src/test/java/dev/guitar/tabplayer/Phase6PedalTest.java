@@ -667,4 +667,75 @@ class Phase6PedalTest {
         assertTrue(ratio > 2.0f,
                 "level must restore the output volume, ratio=" + ratio);
     }
+
+    /* ---- EQ --------------------------------------------------------------- */
+
+    /** Fixture with a chosen string/fret and EQ params (amp section neutral). */
+    private WavAnalysis.Wav renderEq(int stringIndex, int fret, boolean enabled,
+                                     float bass, float mid, float treble) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, stringIndex, fret, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, stringIndex, 0, 0f, 0f));
+        Path wav = tempDir.resolve("eq-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setEq(enabled, bass, mid, treble);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedEqLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsPinned = renderEq(0, 0, false, 1.0f, 0.0f, 1.0f);
+        WavAnalysis.Wav clean = renderEq(0, 0, false, 0.5f, 0.5f, 0.5f);
+        float ratio = WavAnalysis.rms(knobsPinned, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed EQ must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void flatEqIsAnExactIdentity() throws Exception {
+        // the three bands recombine to the signal when all knobs are flat
+        WavAnalysis.Wav clean = renderEq(0, 0, false, 0.5f, 0.5f, 0.5f);
+        WavAnalysis.Wav flat = renderEq(0, 0, true, 0.5f, 0.5f, 0.5f);
+        float ratio = WavAnalysis.rms(flat, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "flat EQ must be an identity, ratio=" + ratio);
+    }
+
+    @Test
+    void bassBoostRaisesTheLowEnd() throws Exception {
+        // open low E (82 Hz) sits mostly in the 250 Hz bass band — its
+        // harmonics spill into mid/treble, so the lift lands below the
+        // full +0.75 band gain
+        WavAnalysis.Wav clean = renderEq(0, 0, true, 0.5f, 0.5f, 0.5f);
+        WavAnalysis.Wav boosted = renderEq(0, 0, true, 1.0f, 0.5f, 0.5f);
+        float ratio = WavAnalysis.rms(boosted, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 1.2f,
+                "bass boost must lift the low note, ratio=" + ratio);
+    }
+
+    @Test
+    void midBoostRaisesTheMiddle() throws Exception {
+        // fret 7 on the high e (494 Hz) lives mostly in the mid band
+        WavAnalysis.Wav clean = renderEq(5, 7, true, 0.5f, 0.5f, 0.5f);
+        WavAnalysis.Wav boosted = renderEq(5, 7, true, 0.5f, 1.0f, 0.5f);
+        float ratio = WavAnalysis.rms(boosted, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 1.15f,
+                "mid boost must lift the mid note, ratio=" + ratio);
+    }
+
+    @Test
+    void trebleBoostBrightensTheNote() throws Exception {
+        // the 4th harmonic of 494 Hz (1976 Hz) sits in the treble band
+        WavAnalysis.Wav clean = renderEq(5, 7, true, 0.5f, 0.5f, 0.5f);
+        WavAnalysis.Wav bright = renderEq(5, 7, true, 0.5f, 0.5f, 1.0f);
+        float flatMag = WavAnalysis.toneMagnitude(clean, 0.05, 0.30, 1976.0f);
+        float boostedMag = WavAnalysis.toneMagnitude(bright, 0.05, 0.30, 1976.0f);
+        assertTrue(boostedMag > flatMag * 1.15f,
+                "treble boost must lift the high harmonics: flat=" + flatMag
+                        + " boosted=" + boostedMag);
+    }
 }

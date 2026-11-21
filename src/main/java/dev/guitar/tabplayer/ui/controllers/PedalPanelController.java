@@ -161,5 +161,19 @@ public class PedalPanelController {
     compSustain.valueProperty().bindBidirectional(ctx.compSustainProperty());
     compLevel.valueProperty().bindBidirectional(ctx.compLevelProperty());
     pedalRow.getChildren().add(compressor);
+
+    // EQ: 3-band tone shaping (0.5 = flat)
+    Knob eqBass = new Knob(0, 1, 0.5, 44);
+    Knob eqMid = new Knob(0, 1, 0.5, 44);
+    Knob eqTreble = new Knob(0, 1, 0.5, 44);
+    PedalBox eq = new PedalBox("EQ");
+    eq.addKnob(eqBass, "BASS");
+    eq.addKnob(eqMid, "MID");
+    eq.addKnob(eqTreble, "TREBLE");
+    eq.enabledProperty().bindBidirectional(ctx.eqEnabledProperty());
+    eqBass.valueProperty().bindBidirectional(ctx.eqBassProperty());
+    eqMid.valueProperty().bindBidirectional(ctx.eqMidProperty());
+    eqTreble.valueProperty().bindBidirectional(ctx.eqTrebleProperty());
+    pedalRow.getChildren().add(eq);
   }
 }

@@ -75,6 +75,10 @@ public final class AppContext {
   private final DoubleProperty compSustain = new SimpleDoubleProperty(0.5);
   private final DoubleProperty compLevel = new SimpleDoubleProperty(0.5);
   private final BooleanProperty compEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty eqBass = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty eqMid = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty eqTreble = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty eqEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -95,7 +99,8 @@ public final class AppContext {
         phaserRate, phaserDepth, phaserRegen, phaserMix, phaserEnabled,
         tremoloRate, tremoloDepth, tremoloEnabled,
         vibratoRate, vibratoDepth, vibratoMix, vibratoEnabled,
-        compSustain, compLevel, compEnabled}) {
+        compSustain, compLevel, compEnabled,
+        eqBass, eqMid, eqTreble, eqEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -330,6 +335,22 @@ public final class AppContext {
     return compEnabled;
   }
 
+  public DoubleProperty eqBassProperty() {
+    return eqBass;
+  }
+
+  public DoubleProperty eqMidProperty() {
+    return eqMid;
+  }
+
+  public DoubleProperty eqTrebleProperty() {
+    return eqTreble;
+  }
+
+  public BooleanProperty eqEnabledProperty() {
+    return eqEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -389,6 +410,10 @@ public final class AppContext {
     state.put("comp.enabled", Boolean.toString(compEnabled.get()));
     state.put("comp.sustain", Double.toString(compSustain.get()));
     state.put("comp.level", Double.toString(compLevel.get()));
+    state.put("eq.enabled", Boolean.toString(eqEnabled.get()));
+    state.put("eq.bass", Double.toString(eqBass.get()));
+    state.put("eq.mid", Double.toString(eqMid.get()));
+    state.put("eq.treble", Double.toString(eqTreble.get()));
     return state;
   }
 
@@ -434,6 +459,10 @@ public final class AppContext {
     compEnabled.set(Boolean.parseBoolean(state.getOrDefault("comp.enabled", "false")));
     compSustain.set(clamp(parse(state.getOrDefault("comp.sustain", "0.5")), 0, 1));
     compLevel.set(clamp(parse(state.getOrDefault("comp.level", "0.5")), 0, 1));
+    eqEnabled.set(Boolean.parseBoolean(state.getOrDefault("eq.enabled", "false")));
+    eqBass.set(clamp(parse(state.getOrDefault("eq.bass", "0.5")), 0, 1));
+    eqMid.set(clamp(parse(state.getOrDefault("eq.mid", "0.5")), 0, 1));
+    eqTreble.set(clamp(parse(state.getOrDefault("eq.treble", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -478,6 +507,7 @@ public final class AppContext {
     engine.setVibrato(vibratoEnabled.get(), (float) vibratoRate.get(),
         (float) vibratoDepth.get(), (float) vibratoMix.get());
     engine.setCompressor(compEnabled.get(), (float) compSustain.get(), (float) compLevel.get());
+    engine.setEq(eqEnabled.get(), (float) eqBass.get(), (float) eqMid.get(), (float) eqTreble.get());
   }
 
   public void applyTuning(Tuning tuning) {

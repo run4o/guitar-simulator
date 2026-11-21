@@ -53,6 +53,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setTremoloFn;
   private final MethodHandle setVibratoFn;
   private final MethodHandle setCompressorFn;
+  private final MethodHandle setEqFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -115,6 +116,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setCompressorFn = linker.downcallHandle(symbols.find("guitar_engine_set_compressor").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setEqFn = linker.downcallHandle(symbols.find("guitar_engine_set_eq").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
       getLevelFn = linker.downcallHandle(symbols.find("guitar_engine_get_level").orElseThrow(),
@@ -512,6 +515,18 @@ public final class GuitarEngine implements AutoCloseable {
       setCompressorFn.invokeExact(enabled, sustain, level);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_compressor failed", t);
+    }
+  }
+
+  /**
+   * EQ pedal: 3-band tone shaping (bass/mid/treble 0..1, 0.5 = flat),
+   * after the compressor, on both paths.
+   */
+  public void setEq(boolean enabled, float bass, float mid, float treble) {
+    try {
+      setEqFn.invokeExact(enabled, bass, mid, treble);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_eq failed", t);
     }
   }
 
