@@ -372,6 +372,73 @@ private:
 };
 
 /*
+ * Phaser: the watery swirl — a stack of all-pass filters whose pole
+ * coefficients an LFO sweeps up and down, recombined against the dry
+ * signal with a NEGATIVE mix so swept notches carve through the spectrum
+ * (that is what separates it from the chorus/flanger delay family).
+ * Regeneration feeds the phase-shifted copy back into the stage stack and
+ * deepens the notches. Rate 0.05..8 Hz (log), four stages.
+ */
+class PhaserPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        phase_ = 0.0f;
+        wet_ = 0.0f;
+        for (int i = 0; i < kStages; ++i) {
+            x_prev_[i] = 0.0f;
+            y_prev_[i] = 0.0f;
+        }
+        setParams(rate_, depth_, regen_, mix_);
+    }
+
+    void setParams(float rate, float depth, float regen, float mix) {
+        rate_ = std::clamp(rate, 0.0f, 1.0f);
+        depth_ = std::clamp(depth, 0.0f, 1.0f);
+        regen_ = std::clamp(regen, 0.0f, 0.9f);
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+        rate_hz_ = 0.05f * std::pow(160.0f, rate_); // 0.05 .. 8 Hz
+        c_min_ = 0.02f;
+        c_max_ = c_min_ + (0.65f - c_min_) * depth_;
+    }
+
+    float process(float in) override {
+        phase_ += 6.2831853f * rate_hz_ / fs_;
+        if (phase_ > 6.2831853f) {
+            phase_ -= 6.2831853f;
+        }
+        // swept pole coefficient: the notch sweep the pedal is named for
+        float c = c_min_ + (c_max_ - c_min_) * (0.5f + 0.5f * std::sin(phase_));
+        const float a = (1.0f - c) / (1.0f + c);
+        float x = in + wet_ * regen_;
+        for (int i = 0; i < kStages; ++i) {
+            // one-pole all-pass: y[n] = a*(x[n] - y[n-1]) + x[n-1]
+            const float y = a * (x - y_prev_[i]) + x_prev_[i];
+            x_prev_[i] = x;
+            y_prev_[i] = y;
+            x = y;
+        }
+        wet_ = x;
+        return in - wet_ * mix_;
+    }
+
+private:
+    static const int kStages = 4;
+    float fs_ = 44100.0f;
+    float rate_ = 0.5f;
+    float depth_ = 0.5f;
+    float regen_ = 0.4f;
+    float mix_ = 0.5f;
+    float rate_hz_ = 0.5f;
+    float c_min_ = 0.02f;
+    float c_max_ = 0.4f;
+    float wet_ = 0.0f;
+    float phase_ = 0.0f;
+    float x_prev_[kStages] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float y_prev_[kStages] = {0.0f, 0.0f, 0.0f, 0.0f};
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -386,6 +453,7 @@ public:
         delay_.prepare(fs_);
         chorus_.prepare(fs_);
         flanger_.prepare(fs_);
+        phaser_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -423,6 +491,11 @@ public:
         flanger_.setParams(rate, depth, feedback, mix);
     }
 
+    void setPhaser(bool enabled, float rate, float depth, float regen, float mix) {
+        phaser_.enabled = enabled;
+        phaser_.setParams(rate, depth, regen, mix);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -445,6 +518,9 @@ public:
         if (flanger_.enabled) {
             in = flanger_.process(in);
         }
+        if (phaser_.enabled) {
+            in = phaser_.process(in);
+        }
         return in;
     }
 
@@ -457,6 +533,7 @@ private:
     DelayPedal delay_;
     ChorusPedal chorus_;
     FlangerPedal flanger_;
+    PhaserPedal phaser_;
 };
 
 } // namespace gte

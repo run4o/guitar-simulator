@@ -108,5 +108,22 @@ public class PedalPanelController {
     flFb.valueProperty().bindBidirectional(ctx.flangerFeedbackProperty());
     flMix.valueProperty().bindBidirectional(ctx.flangerMixProperty());
     pedalRow.getChildren().add(flanger);
+
+    // PHASER: LFO-swept all-pass notches (the watery swirl)
+    Knob phRate = new Knob(0, 1, 0.5, 44);
+    Knob phDepth = new Knob(0, 1, 0.5, 44);
+    Knob phRegen = new Knob(0, 0.9, 0.4, 44);
+    Knob phMix = new Knob(0, 1, 0.5, 44);
+    PedalBox phaser = new PedalBox("PHASER");
+    phaser.addKnob(phRate, "RATE");
+    phaser.addKnob(phDepth, "DEPTH");
+    phaser.addKnob(phRegen, "REGEN");
+    phaser.addKnob(phMix, "MIX");
+    phaser.enabledProperty().bindBidirectional(ctx.phaserEnabledProperty());
+    phRate.valueProperty().bindBidirectional(ctx.phaserRateProperty());
+    phDepth.valueProperty().bindBidirectional(ctx.phaserDepthProperty());
+    phRegen.valueProperty().bindBidirectional(ctx.phaserRegenProperty());
+    phMix.valueProperty().bindBidirectional(ctx.phaserMixProperty());
+    pedalRow.getChildren().add(phaser);
   }
 }

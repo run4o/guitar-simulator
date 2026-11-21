@@ -49,6 +49,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setDelayFn;
   private final MethodHandle setChorusFn;
   private final MethodHandle setFlangerFn;
+  private final MethodHandle setPhaserFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
   private final MethodHandle resetTransportFn;
@@ -102,6 +103,8 @@ public final class GuitarEngine implements AutoCloseable {
       setChorusFn = linker.downcallHandle(symbols.find("guitar_engine_set_chorus").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT));
       setFlangerFn = linker.downcallHandle(symbols.find("guitar_engine_set_flanger").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
+      setPhaserFn = linker.downcallHandle(symbols.find("guitar_engine_set_phaser").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT, C_FLOAT));
@@ -452,6 +455,18 @@ public final class GuitarEngine implements AutoCloseable {
       setFlangerFn.invokeExact(enabled, rate, depth, feedback, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_flanger failed", t);
+    }
+  }
+
+  /**
+   * Phaser pedal: LFO-swept all-pass notches (rate/depth/regen 0..1,
+   * mix 0..1), after the flanger, on both paths.
+   */
+  public void setPhaser(boolean enabled, float rate, float depth, float regen, float mix) {
+    try {
+      setPhaserFn.invokeExact(enabled, rate, depth, regen, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_phaser failed", t);
     }
   }
 

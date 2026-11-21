@@ -404,4 +404,66 @@ class Phase6PedalTest {
         assertTrue(high > 1.6f * low,
                 "feedback must keep the comb ringing: " + high + " vs " + low);
     }
+
+    /* ---- phaser ------------------------------------------------------- */
+
+    /** Same fixture with phaser params (amp section neutral). */
+    private WavAnalysis.Wav renderPhaser(boolean enabled, float rate, float depth,
+                                         float regen, float mix) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("phaser-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setPhaser(enabled, rate, depth, regen, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedPhaserLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderPhaser(false, 0.8f, 0.8f, 0.6f, 0.8f);
+        WavAnalysis.Wav clean = renderPhaser(false, 0f, 0f, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed phaser must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void phaserWithMixZeroIsDry() throws Exception {
+        // out = in - wet*mix, so mix 0 is an exact passthrough even with the
+        // pedal engaged and every knob turned up
+        WavAnalysis.Wav clean = renderPhaser(false, 0f, 0f, 0f, 0f);
+        WavAnalysis.Wav dry = renderPhaser(true, 0.6f, 0.8f, 0.85f, 0.0f);
+        float ratio = WavAnalysis.rms(dry, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "mix 0 must pass the signal untouched, ratio=" + ratio);
+    }
+
+    @Test
+    void phaserReshapesTheTone() throws Exception {
+        // the phase-shifted copy recombined against the dry signal changes
+        // the note's energy (swept notches dip and boost as they travel)
+        WavAnalysis.Wav clean = renderPhaser(false, 0f, 0f, 0f, 0f);
+        WavAnalysis.Wav phased = renderPhaser(true, 0.6f, 0.8f, 0.0f, 1.0f);
+        float ratio = WavAnalysis.rms(phased, 0.05, 0.30) / WavAnalysis.rms(clean, 0.05, 0.30);
+        assertTrue(ratio < 0.9f || ratio > 1.1f,
+                "phaser must reshape the note, ratio=" + ratio);
+    }
+
+    @Test
+    void phaserRegenDeepensTheSweep() throws Exception {
+        // regeneration feeds the phase-shifted copy back into the stage
+        // stack, so the two settings must render measurably different
+        WavAnalysis.Wav noRegen = renderPhaser(true, 0.6f, 0.8f, 0.0f, 1.0f);
+        WavAnalysis.Wav maxRegen = renderPhaser(true, 0.6f, 0.8f, 0.85f, 1.0f);
+        float low = WavAnalysis.rms(noRegen, 0.05, 0.30);
+        float high = WavAnalysis.rms(maxRegen, 0.05, 0.30);
+        float ratio = high / low;
+        assertTrue(ratio < 0.85f || ratio > 1.15f,
+                "regeneration must change the render measurably, ratio=" + ratio);
+    }
 }

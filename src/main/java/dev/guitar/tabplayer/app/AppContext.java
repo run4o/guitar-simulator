@@ -60,6 +60,11 @@ public final class AppContext {
   private final DoubleProperty flangerFeedback = new SimpleDoubleProperty(0.4);
   private final DoubleProperty flangerMix = new SimpleDoubleProperty(0.5);
   private final BooleanProperty flangerEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty phaserRate = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty phaserDepth = new SimpleDoubleProperty(0.5);
+  private final DoubleProperty phaserRegen = new SimpleDoubleProperty(0.4);
+  private final DoubleProperty phaserMix = new SimpleDoubleProperty(0.5);
+  private final BooleanProperty phaserEnabled = new SimpleBooleanProperty(false);
 
   private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
@@ -76,7 +81,8 @@ public final class AppContext {
         fuzzAmount, fuzzVolume, fuzzEnabled,
         delayTime, delayFeedback, delayMix, delayEnabled,
         chorusRate, chorusDepth, chorusMix, chorusEnabled,
-        flangerRate, flangerDepth, flangerFeedback, flangerMix, flangerEnabled}) {
+        flangerRate, flangerDepth, flangerFeedback, flangerMix, flangerEnabled,
+        phaserRate, phaserDepth, phaserRegen, phaserMix, phaserEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -251,6 +257,26 @@ public final class AppContext {
     return flangerEnabled;
   }
 
+  public DoubleProperty phaserRateProperty() {
+    return phaserRate;
+  }
+
+  public DoubleProperty phaserDepthProperty() {
+    return phaserDepth;
+  }
+
+  public DoubleProperty phaserRegenProperty() {
+    return phaserRegen;
+  }
+
+  public DoubleProperty phaserMixProperty() {
+    return phaserMix;
+  }
+
+  public BooleanProperty phaserEnabledProperty() {
+    return phaserEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -295,6 +321,11 @@ public final class AppContext {
     state.put("flanger.depth", Double.toString(flangerDepth.get()));
     state.put("flanger.feedback", Double.toString(flangerFeedback.get()));
     state.put("flanger.mix", Double.toString(flangerMix.get()));
+    state.put("phaser.enabled", Boolean.toString(phaserEnabled.get()));
+    state.put("phaser.rate", Double.toString(phaserRate.get()));
+    state.put("phaser.depth", Double.toString(phaserDepth.get()));
+    state.put("phaser.regen", Double.toString(phaserRegen.get()));
+    state.put("phaser.mix", Double.toString(phaserMix.get()));
     return state;
   }
 
@@ -325,6 +356,11 @@ public final class AppContext {
     flangerDepth.set(clamp(parse(state.getOrDefault("flanger.depth", "0.6")), 0, 1));
     flangerFeedback.set(clamp(parse(state.getOrDefault("flanger.feedback", "0.4")), 0, 0.9));
     flangerMix.set(clamp(parse(state.getOrDefault("flanger.mix", "0.5")), 0, 1));
+    phaserEnabled.set(Boolean.parseBoolean(state.getOrDefault("phaser.enabled", "false")));
+    phaserRate.set(clamp(parse(state.getOrDefault("phaser.rate", "0.5")), 0, 1));
+    phaserDepth.set(clamp(parse(state.getOrDefault("phaser.depth", "0.5")), 0, 1));
+    phaserRegen.set(clamp(parse(state.getOrDefault("phaser.regen", "0.4")), 0, 0.9));
+    phaserMix.set(clamp(parse(state.getOrDefault("phaser.mix", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -363,6 +399,8 @@ public final class AppContext {
     engine.setFlanger(flangerEnabled.get(), (float) flangerRate.get(),
         (float) flangerDepth.get(), (float) flangerFeedback.get(),
         (float) flangerMix.get());
+    engine.setPhaser(phaserEnabled.get(), (float) phaserRate.get(),
+        (float) phaserDepth.get(), (float) phaserRegen.get(), (float) phaserMix.get());
   }
 
   public void applyTuning(Tuning tuning) {
