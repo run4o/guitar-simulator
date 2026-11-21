@@ -705,6 +705,14 @@ GTE_EXPORT void guitar_engine_set_gate(bool enabled, float threshold, float rele
     g_pedals.gate_release.store(std::clamp(release, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
+/* Pedalboard: phrase looper (length/level normalized 0..1), after the
+ * octave. */
+GTE_EXPORT void guitar_engine_set_looper(bool enabled, float length, float level) {
+    g_pedals.loop_enabled.store(enabled, std::memory_order_relaxed);
+    g_pedals.loop_length.store(std::clamp(length, 0.0f, 1.0f), std::memory_order_relaxed);
+    g_pedals.loop_level.store(std::clamp(level, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 /* Pedalboard: classic analog octave (mode/mix normalized 0..1), after
  * the gate. */
 GTE_EXPORT void guitar_engine_set_octave(bool enabled, float mode, float mix) {
