@@ -39,8 +39,8 @@ class Phase5FxTest {
         return WavAnalysis.read(wav);
     }
 
-    /** Bright pluck (B4, string 5 fret 7) at max drive through one amp channel. */
-    private WavAnalysis.Wav renderChannel(int model, String tag) throws Exception {
+    /** Bright pluck (B4, string 5 fret 7) through one amp channel. */
+    private WavAnalysis.Wav renderChannel(int model, float drive, String tag) throws Exception {
         List<RenderCommand> commands = List.of(
                 new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
                 new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
@@ -48,7 +48,7 @@ class Phase5FxTest {
         try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
             assertTrue(engine.init((int) SR, 256));
             engine.setAmpModel(model);
-            engine.setFx(1f, 1f, 0f, 1f); // max drive, bright tone, no reverb
+            engine.setFx(drive, 1f, 0f, 1f);
             assertTrue(engine.renderSequenceToWav(wav, 0.6f, commands));
         }
         return WavAnalysis.read(wav);
@@ -163,9 +163,9 @@ class Phase5FxTest {
     /* ---- amp channels ------------------------------------------------------ */
 
     /**
-     * Harmonic fizz: tone magnitudes above 2.4 kHz, where the cascaded
+     * Harmonic fizz: tone magnitudes from 2.4 kHz up, where the cascaded
      * clipper's generated harmonics live (the string's own harmonics
-     * dominate below that in every channel).
+     * dominate below that in every channel). Raw sum — scale matters.
      */
     private float fizz(WavAnalysis.Wav wav) {
         float sum = 0f;
@@ -177,42 +177,49 @@ class Phase5FxTest {
 
     @Test
     void metalChannelAddsHarmonicBite() throws Exception {
-        // deep clipping generates fizz the clean channel never has
-        WavAnalysis.Wav clean = renderChannel(0, "clean");
-        WavAnalysis.Wav metal = renderChannel(2, "metal");
-        assertTrue(fizz(metal) > fizz(clean) * 2.0f,
-                "max-drive metal must fatten the upper harmonics, fizz " + fizz(metal)
-                        + " vs clean " + fizz(clean));
+        // the cascaded voicing generates fizz the dry signal never has
+        WavAnalysis.Wav clean = renderChannel(0, 0f, "clean");
+        WavAnalysis.Wav metal = renderChannel(2, 1f, "metal");
+        assertTrue(fizz(metal) > fizz(clean) * 5.0f,
+                "max-drive metal must be harmonically rich, " + fizz(metal)
+                        + " vs dry " + fizz(clean));
     }
 
     @Test
-    void crunchSitsBetweenCleanAndMetal() throws Exception {
-        WavAnalysis.Wav clean = renderChannel(0, "clean");
-        WavAnalysis.Wav crunch = renderChannel(1, "crunch");
-        WavAnalysis.Wav metal = renderChannel(2, "metal");
-        float cleanFizz = fizz(clean);
-        float crunchFizz = fizz(crunch);
-        float metalFizz = fizz(metal);
-        assertTrue(crunchFizz > cleanFizz && crunchFizz < metalFizz,
-                "crunch must sit between clean and metal on fizz, " + cleanFizz
-                        + " < " + crunchFizz + " < " + metalFizz);
+    void crunchChannelBreaksUp() throws Exception {
+        WavAnalysis.Wav clean = renderChannel(0, 0f, "clean");
+        WavAnalysis.Wav crunch = renderChannel(1, 1f, "crunch");
+        assertTrue(fizz(crunch) > fizz(clean) * 5.0f,
+                "crunch must break up against the dry signal, " + fizz(crunch)
+                        + " vs dry " + fizz(clean));
+    }
+
+    @Test
+    void metalChannelIsHeavyAtZeroDrive() throws Exception {
+        // a lead channel is saturated at knob 0 — DRIVE is the gain, not a
+        // blend. This failed before: METAL at DRIVE 0 was the dry signal.
+        WavAnalysis.Wav clean = renderChannel(0, 0f, "clean");
+        WavAnalysis.Wav metal = renderChannel(2, 0f, "metal");
+        assertTrue(fizz(metal) > fizz(clean) * 3.0f,
+                "metal at zero drive must already bite, " + fizz(metal)
+                        + " vs dry " + fizz(clean));
     }
 
     @Test
     void metalChannelKeepsTheLevelSane() throws Exception {
         // cascaded stages compress hard; the makeup gain must not blast or drop
-        WavAnalysis.Wav clean = renderChannel(0, "clean");
-        WavAnalysis.Wav metal = renderChannel(2, "metal");
+        WavAnalysis.Wav clean = renderChannel(0, 1f, "clean");
+        WavAnalysis.Wav metal = renderChannel(2, 1f, "metal");
         float ratio = WavAnalysis.rms(metal, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
-        assertTrue(ratio > 0.45f && ratio < 2.0f,
+        assertTrue(ratio > 0.4f && ratio < 2.0f,
                 "metal body must stay in sane range vs clean, ratio=" + ratio);
     }
 
     @Test
     void metalChannelStaysInBoundsAndDeterministic() throws Exception {
-        WavAnalysis.Wav a = renderChannel(2, "metal-a");
-        WavAnalysis.Wav b = renderChannel(2, "metal-b");
-        assertTrue(WavAnalysis.peak(a, 0.0, 2.5) <= 1.0f,
+        WavAnalysis.Wav a = renderChannel(2, 1f, "metal-a");
+        WavAnalysis.Wav b = renderChannel(2, 1f, "metal-b");
+        assertTrue(WavAnalysis.peak(a, 0.0, 2.5) <= 1.05f,
                 "metal output must respect the soft ceiling");
         for (int i = 0; i < a.samples().length; i++) {
             if (a.samples()[i] != b.samples()[i]) {

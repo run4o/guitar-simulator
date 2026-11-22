@@ -49,7 +49,13 @@ public:
 
         hp_state_ = 0.0f;
         tone_s1_ = tone_s2_ = 0.0f;
-        pre_state_ = lp_a_ = bp_a_ = hp_p_ = dc_state_ = 0.0f;
+        pre_state_ = hp2_state_ = dc_state_ = 0.0f;
+        prev_in_ = 0.0f;
+        gate_env_ = 0.0f;
+        std::fill(std::begin(sub_ring_), std::end(sub_ring_), 0.0f);
+        sub_w_ = 0;
+        scoop_x1_ = scoop_x2_ = scoop_y1_ = scoop_y2_ = 0.0f;
+        pres_x1_ = pres_x2_ = pres_y1_ = pres_y2_ = 0.0f;
         setParams(drive_, tone_, reverb_mix_, master_);
     }
 
@@ -64,31 +70,87 @@ public:
         tone_coef_ = 1.0f - std::exp(-6.2831853f * cutoff / fs_);
         hp_coef_ = 1.0f - std::exp(-6.2831853f * 400.0f / fs_);
 
-        // channel voicings: CLEAN keeps the classic single soft-clip, CRUNCH
-        // and METAL run a cascaded gain structure (pre-cut -> input stage ->
-        // main clipper) with post shaping. DRIVE acts as the channel gain.
-        pre_cut_coef_ = 1.0f - std::exp(-6.2831853f * 80.0f / fs_);
-        lp_a_coef_ = 1.0f - std::exp(-6.2831853f * 900.0f / fs_);
-        bp_a_coef_ = 1.0f - std::exp(-6.2831853f * 250.0f / fs_);
-        hp_p_coef_ = 1.0f - std::exp(-6.2831853f * 3500.0f / fs_);
-        dc_coef_ = 1.0f - std::exp(-6.2831853f * 12.0f / fs_);
-        if (model_ == 2) { // METAL: deep cascade, scooped, tight
-            s1_gain_ = 3.0f + drive_ * 2.0f;
-            clip_gain_ = 3.0f + drive_ * 25.0f;
-            makeup_ = 1.05f;
-            asym_ = 0.15f;
-            scoop_ = 0.30f;
-            presence_ = 0.22f;
+        // Oversampling: 32-tap Blackman-windowed sinc anti-alias FIR, cutoff
+        // 20 kHz at the 4x rate. Recomputed only when fs changes.
+        if (static_cast<int>(fir_.size()) != 32 || last_fir_fs_ != fs_) {
+            fir_.assign(32, 0.0f);
+            const float fc = 20000.0f / (4.0f * fs_);
+            float sum = 0.0f;
+            for (int k = 0; k < 32; ++k) {
+                const float m = k - 15.5f;
+                const float sinc = m == 0.0f ? 2.0f * fc
+                    : std::sin(6.2831853f * fc * m) / (3.14159265f * m);
+                const float win = 0.42f - 0.5f * std::cos(6.2831853f * k / 31.0f)
+                    + 0.08f * std::cos(12.5663706f * k / 31.0f);
+                fir_[k] = sinc * win;
+                sum += fir_[k];
+            }
+            for (float& h : fir_) {
+                h /= sum;
+            }
+            last_fir_fs_ = fs_;
+        }
+
+        // channel voicings. CLEAN keeps the classic single soft-clip; CRUNCH
+        // and METAL are always-on cascaded channels (a lead channel is
+        // saturated at knob 0 — DRIVE is the channel's gain, not a blend).
+        // Gains assume the small signal the strings deliver (~0.1 peak).
+        const float os_fs = 4.0f * fs_;
+        pre_cut_coef_ = 1.0f - std::exp(-6.2831853f * 100.0f / os_fs);
+        dc_coef_ = 1.0f - std::exp(-6.2831853f * 12.0f / os_fs);
+        if (model_ == 2) { // METAL: deep cascade, scooped, tight. A second
+            // square-ifying pass makes the saturated wave harder-edged —
+            // the deep tanh alone falls off too fast for the fizz the
+            // voicing needs.
+            s1_gain_ = 4.0f + drive_ * 2.0f;
+            clip_gain_ = 30.0f + drive_ * 60.0f;
+            makeup_ = 1.0f;
+            asym_ = 0.12f;
+            gate_threshold_ = 0.0006f;
         } else if (model_ == 1) { // CRUNCH: same structure, milder voicing
-            s1_gain_ = 1.6f + drive_ * 0.8f;
-            clip_gain_ = 2.0f + drive_ * 10.0f;
-            makeup_ = 1.05f;
+            s1_gain_ = 2.0f + drive_ * 1.0f;
+            clip_gain_ = 8.0f + drive_ * 25.0f;
+            makeup_ = 1.0f;
             asym_ = 0.05f;
-            scoop_ = 0.15f;
-            presence_ = 0.10f;
+            gate_threshold_ = 0.0004f;
         } else { // CLEAN: the original single-tanh path
             clip_gain_ = 1.0f + drive_ * 24.0f;
             makeup_ = 0.9f + drive_ * 0.7f;
+        }
+        // post-EQ biquads: RBJ peaking mid scoop + high-shelf presence.
+        // The scoop is shared; the presence boost is the voicing's fang —
+        // metal leans on it hard, crunch barely.
+        float scoopDb = -6.0f;
+        float presenceDb = 1.5f;
+        if (model_ == 2) {
+            scoopDb = -5.0f;
+            presenceDb = 7.0f;
+        } else if (model_ == 1) {
+            presenceDb = 1.5f;
+        }
+        {
+            const float w0 = 6.2831853f * 500.0f / fs_;
+            const float alpha = std::sin(w0) / (2.0f * 0.9f);
+            const float A = std::pow(10.0f, scoopDb / 40.0f);
+            const float a0 = 1.0f + alpha / A;
+            scoop_.assign({
+                (1.0f + alpha * A) / a0,
+                -2.0f * std::cos(w0) / a0,
+                (1.0f - alpha * A) / a0,
+                -2.0f * std::cos(w0) / a0,
+                (1.0f - alpha / A) / a0});
+            const float wp = 6.2831853f * 3500.0f / fs_;
+            const float Ap = std::pow(10.0f, presenceDb / 40.0f);
+            const float alp = std::sin(wp) / 2.0f * std::sqrt(2.0f);
+            const float sq = 2.0f * std::sqrt(Ap) * alp;
+            const float cw = std::cos(wp);
+            const float p0 = (Ap + 1.0f) - (Ap - 1.0f) * cw + sq;
+            presence_.assign({
+                Ap * ((Ap + 1.0f) + (Ap - 1.0f) * cw + sq) / p0,
+                -2.0f * Ap * ((Ap - 1.0f) + Ap * cw) / p0,
+                Ap * ((Ap + 1.0f) + (Ap - 1.0f) * cw - sq) / p0,
+                (-2.0f * ((Ap - 1.0f) - (Ap + 1.0f) * cw)) / p0,
+                ((Ap + 1.0f) - (Ap - 1.0f) * cw - sq) / p0});
         }
 
         comb_fb_ = 0.72f + 0.16f * reverb_mix_;
@@ -101,27 +163,61 @@ public:
         setParams(drive_, tone_, reverb_mix_, master_);
     }
 
+    // Oversampled cascade: pre-cut -> input stage -> main clipper with a
+    // touch of asymmetric diode bite (DC-blocked). Runs at 4x rate.
+    float cascade(float x) {
+        float s = x - pre_state_;
+        pre_state_ += pre_cut_coef_ * (x - pre_state_);
+        s = std::tanh(s1_gain_ * s);
+        s = s - hp2_state_;
+        hp2_state_ += pre_cut_coef_ * (s - hp2_state_);
+        float c = std::tanh(clip_gain_ * s);
+        c += asym_ * c * c;
+        c -= dc_state_;
+        dc_state_ += dc_coef_ * (c - dc_state_);
+        return c;
+    }
+
+    // One biquad pass (b0 b1 b2 a1 a2 packed in coeffs).
+    static float biquad(const float coeffs[5], float& x1, float& x2, float& y1, float& y2,
+                        float in) {
+        const float y = coeffs[0] * in + coeffs[1] * x1 + coeffs[2] * x2
+            - coeffs[3] * y1 - coeffs[4] * y2;
+        x2 = x1; x1 = in; y2 = y1; y1 = y;
+        return y;
+    }
+
     float process(float in) {
         // drive: 400 Hz high-pass -> gain -> tanh -> makeup -> dry/wet blend
         float shaped = in;
-        if (model_ != 0 && drive_ > 0.0005f) {
-            // pre-shape: low-cut tightens the cascade's low end
-            pre_state_ += pre_cut_coef_ * (in - pre_state_);
-            float x = in - pre_state_;
-            // stage 1: input compression before the main clipper
-            x = std::tanh(s1_gain_ * x);
-            // stage 2: main clipper with a touch of asymmetric diode bite
-            float c = std::tanh(clip_gain_ * x);
-            c += asym_ * c * c;
-            dc_state_ += dc_coef_ * (c - dc_state_);
-            c -= dc_state_;
-            // post shaping: mid scoop + presence lift
-            lp_a_ += lp_a_coef_ * (c - lp_a_);
-            bp_a_ += bp_a_coef_ * (lp_a_ - bp_a_);
-            float y = c - scoop_ * (lp_a_ - bp_a_);
-            hp_p_ += hp_p_coef_ * (y - hp_p_);
-            y += presence_ * (y - hp_p_);
-            shaped = (1.0f - drive_) * in + drive_ * (y * makeup_);
+        if (model_ != 0) {
+            // 4x linear upsample between the previous and current input,
+            // cascade at 4x rate, 32-tap sinc downsample.
+            for (int j = 1; j <= 4; ++j) {
+                const float x = prev_in_ + (in - prev_in_) * (j / 4.0f);
+                sub_ring_[sub_w_] = cascade(x);
+                sub_w_ = sub_w_ + 1 == 32 ? 0 : sub_w_ + 1;
+            }
+            prev_in_ = in;
+            float y = 0.0f;
+            for (int k = 0; k < 32; ++k) {
+                const int idx = sub_w_ - 1 - k < 0 ? sub_w_ - 1 - k + 32 : sub_w_ - 1 - k;
+                y += fir_[k] * sub_ring_[idx];
+            }
+            // post-EQ at the native rate
+            y = biquad(scoop_.data(), scoop_x1_, scoop_x2_, scoop_y1_, scoop_y2_, y);
+            y = biquad(presence_.data(), pres_x1_, pres_x2_, pres_y1_, pres_y2_, y);
+            // light internal gate: kills the mush floor, never the note
+            const float a = std::fabs(y);
+            const float coef = a > gate_env_
+                ? 1.0f - std::exp(-1.0f / (0.001f * fs_))
+                : 1.0f - std::exp(-1.0f / (0.03f * fs_));
+            gate_env_ += coef * (a - gate_env_);
+            if (gate_env_ < gate_threshold_) {
+                const float r = gate_env_ / gate_threshold_;
+                y *= r * r;
+            }
+            shaped = y * makeup_;
         } else if (drive_ > 0.0005f) {
             hp_state_ += hp_coef_ * (in - hp_state_);
             const float hp = in - hp_state_;
@@ -153,9 +249,16 @@ public:
         }
 
         const float mixed = dry * (1.0f - reverb_mix_) + wet * wet_gain_;
-        const float out = mixed * master_;
-        if (out > 0.98f) return 0.98f;
-        if (out < -0.98f) return -0.98f;
+        float out = mixed * master_;
+        // Soft ceiling: linear below 0.98, smoothly limited above — a hard
+        // clamp would re-alias everything the oversampled clipper avoided.
+        constexpr float kCeil = 0.98f;
+        constexpr float kKnee = 0.03f;
+        if (out > kCeil) {
+            out = kCeil + kKnee * std::tanh((out - kCeil) / kKnee);
+        } else if (out < -kCeil) {
+            out = -kCeil + kKnee * std::tanh((out + kCeil) / kKnee);
+        }
         return out;
     }
 
@@ -185,20 +288,24 @@ private:
     float makeup_ = 0.9f;
     float s1_gain_ = 1.0f;
     float asym_ = 0.0f;
-    float scoop_ = 0.0f;
-    float presence_ = 0.0f;
+    float gate_threshold_ = 0.0f;
     float pre_cut_coef_ = 0.01f;
-    float lp_a_coef_ = 0.1f;
-    float bp_a_coef_ = 0.1f;
-    float hp_p_coef_ = 0.5f;
     float dc_coef_ = 0.01f;
     float hp_coef_ = 0.05f;
     float hp_state_ = 0.0f;
     float pre_state_ = 0.0f;
-    float lp_a_ = 0.0f;
-    float bp_a_ = 0.0f;
-    float hp_p_ = 0.0f;
+    float hp2_state_ = 0.0f;
     float dc_state_ = 0.0f;
+    float prev_in_ = 0.0f;
+    float gate_env_ = 0.0f;
+    float sub_ring_[32] = {};
+    int sub_w_ = 0;
+    float last_fir_fs_ = 0.0f;
+    std::vector<float> fir_;
+    std::vector<float> scoop_;    // b0 b1 b2 a1 a2
+    std::vector<float> presence_; // b0 b1 b2 a1 a2
+    float scoop_x1_ = 0.0f, scoop_x2_ = 0.0f, scoop_y1_ = 0.0f, scoop_y2_ = 0.0f;
+    float pres_x1_ = 0.0f, pres_x2_ = 0.0f, pres_y1_ = 0.0f, pres_y2_ = 0.0f;
     float tone_coef_ = 0.5f;
     float tone_s1_ = 0.0f;
     float tone_s2_ = 0.0f;
