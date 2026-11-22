@@ -3,8 +3,13 @@ package dev.guitar.tabplayer.ui.controllers;
 import dev.guitar.tabplayer.app.AppContext;
 import dev.guitar.tabplayer.ui.controls.Knob;
 import dev.guitar.tabplayer.ui.controls.PedalBox;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.fxml.FXML;
+import javafx.geometry.Pos;
+import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
+import javafx.util.Duration;
 
 /**
  * Pedalboard panel: one stompbox tile per pedal, each bound to its engine
@@ -230,5 +235,38 @@ public class PedalPanelController {
     volume.enabledProperty().bindBidirectional(ctx.volEnabledProperty());
     volLevel.valueProperty().bindBidirectional(ctx.volLevelProperty());
     pedalRow.getChildren().add(volume);
+
+    // TUNER: mutes the output while measuring the incoming pitch
+    Label tunerReadout = new Label("--");
+    tunerReadout.getStyleClass().add("pedal-name");
+    HBox tunerRow = new HBox(tunerReadout);
+    tunerRow.setAlignment(Pos.CENTER);
+    PedalBox tuner = new PedalBox("TUNER");
+    tuner.getChildren().add(tunerRow);
+    tuner.enabledProperty().bindBidirectional(ctx.tunEnabledProperty());
+    pedalRow.getChildren().add(tuner);
+    startTunerPoll(tunerReadout);
+  }
+
+  /**
+   * Polls the engine's pitch estimate while the tuner is engaged and shows
+   * the nearest note. Runs only while a scene window exists.
+   */
+  private void startTunerPoll(Label readout) {
+    Timeline poll = new Timeline(new KeyFrame(Duration.millis(100), e -> {
+      if (!ctx.engineReady()) {
+        return;
+      }
+      if (!ctx.tunEnabledProperty().get()) {
+        readout.setText("--");
+        return;
+      }
+      float hz = ctx.engine().getTunerHz();
+      readout.setText(hz > 0.0f
+          ? String.format("%s  ·  %.1f Hz", AppContext.noteName(hz), hz)
+          : "--");
+    }));
+    poll.setCycleCount(Timeline.INDEFINITE);
+    poll.play();
   }
 }

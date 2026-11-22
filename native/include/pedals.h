@@ -919,7 +919,7 @@ public:
         samplesSinceCross_++;
         if (sign != lastSign_) {
             lastSign_ = sign;
-            if (sign > 0) { // rising edge completes a half period... two per cycle
+            if (sign > 0) { // rising edge to rising edge = one full period
                 if (period_ > 0.0f) {
                     period_ = period_ * 0.8f + samplesSinceCross_ * 0.2f;
                 } else {
@@ -927,7 +927,7 @@ public:
                 }
                 samplesSinceCross_ = 0;
                 if (env_ > 0.02f && period_ > 0.0f) {
-                    hz_ = fs_ / (2.0f * period_);
+                    hz_ = fs_ / period_;
                 }
             }
         }

@@ -58,6 +58,8 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setGateFn;
   private final MethodHandle setLooperFn;
   private final MethodHandle setVolumeFn;
+  private final MethodHandle setTunerFn;
+  private final MethodHandle getTunerHzFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
@@ -131,6 +133,10 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setVolumeFn = linker.downcallHandle(symbols.find("guitar_engine_set_volume").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
+      setTunerFn = linker.downcallHandle(symbols.find("guitar_engine_set_tuner").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL));
+      getTunerHzFn = linker.downcallHandle(symbols.find("guitar_engine_get_tuner_hz").orElseThrow(),
+          FunctionDescriptor.of(C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),
@@ -603,6 +609,29 @@ public final class GuitarEngine implements AutoCloseable {
       setVolumeFn.invokeExact(enabled, level);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_volume failed", t);
+    }
+  }
+
+  /**
+   * Tuner pedal: mutes the output while measuring the incoming pitch,
+   * read back through {@link #getTunerHz()}. Last in the chain.
+   */
+  public void setTuner(boolean enabled) {
+    try {
+      setTunerFn.invokeExact(enabled);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_tuner failed", t);
+    }
+  }
+
+  /**
+   * Detected pitch of the tuner pedal in Hz (0 = muted/no reading yet).
+   */
+  public float getTunerHz() {
+    try {
+      return (float) getTunerHzFn.invokeExact();
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_get_tuner_hz failed", t);
     }
   }
 

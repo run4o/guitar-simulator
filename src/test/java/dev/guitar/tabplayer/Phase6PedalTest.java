@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -1060,10 +1061,64 @@ class Phase6PedalTest {
     @Test
     void zeroVolumeSilences() throws Exception {
         // gain = level²: level 0.0 is silence
-        WavAnalysis.Wav clean = renderVolume(false, 0f);
+        WavAnalysis.Wav clean = renderVolume(false, 0.0f);
         WavAnalysis.Wav zero = renderVolume(true, 0.0f);
         float ratio = WavAnalysis.rms(zero, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
         assertTrue(ratio < 0.02f,
                 "zero volume must silence the output, ratio=" + ratio);
+    }
+
+    /* ---- tuner ------------------------------------------------------------- */
+
+    /** Fixture: one pluck at B4 (string 5 fret 7 ≈ 494 Hz) for pitch detection. */
+    private static final float TUNER_HZ = 494.0f;
+
+    private WavAnalysis.Wav renderTuner(boolean enabled) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f));
+        Path wav = tempDir.resolve("tuner-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setTuner(enabled);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+            if (enabled) {
+                detectedHz = engine.getTunerHz();
+            }
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    private float detectedHz;
+
+    @Test
+    void bypassedTunerLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav clean = renderTuner(false);
+        assertTrue(WavAnalysis.rms(clean, 0.05, 0.25) > 0.01f,
+                "the bypassed tuner must not mute the output");
+    }
+
+    @Test
+    void engagedTunerMutesTheOutput() throws Exception {
+        WavAnalysis.Wav muted = renderTuner(true);
+        assertTrue(WavAnalysis.rms(muted, 0.05, 0.9) < 0.02f,
+                "the engaged tuner must mute the output");
+    }
+
+    @Test
+    void engagedTunerMeasuresThePitch() throws Exception {
+        renderTuner(true);
+        assertTrue(detectedHz > TUNER_HZ * 0.97f && detectedHz < TUNER_HZ * 1.03f,
+                "the tuner must read about 494 Hz, got " + detectedHz);
+    }
+
+    @Test
+    void disengagedTunerReportsNothing() throws Exception {
+        renderTuner(false);
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            assertEquals(0.0f, engine.getTunerHz(), 0.0001f,
+                    "a fresh engine with the tuner off must report no pitch");
+        }
     }
 }

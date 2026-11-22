@@ -104,6 +104,11 @@ GTE_EXPORT void      guitar_engine_set_wah(bool enabled, float rate, float cente
 GTE_EXPORT void      guitar_engine_set_gate(bool enabled, float threshold, float release);
 GTE_EXPORT void      guitar_engine_set_looper(bool enabled, float length, float level);
 GTE_EXPORT void      guitar_engine_set_octave(bool enabled, float mode, float mix);
+GTE_EXPORT void      guitar_engine_set_volume(bool enabled, float level);
+GTE_EXPORT void      guitar_engine_set_tuner(bool enabled);
+
+/* Detected pitch of the tuner pedal in Hz (0 = silence/no reading yet). */
+GTE_EXPORT float     guitar_engine_get_tuner_hz(void);
 
 /* Per-string channel gain (0..2), like a mixing-desk channel fader. */
 GTE_EXPORT void      guitar_engine_set_string_gain(int string_index, float gain);
