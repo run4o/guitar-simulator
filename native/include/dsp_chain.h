@@ -70,18 +70,18 @@ public:
         tone_coef_ = 1.0f - std::exp(-6.2831853f * cutoff / fs_);
         hp_coef_ = 1.0f - std::exp(-6.2831853f * 400.0f / fs_);
 
-        // Oversampling: 32-tap Blackman-windowed sinc anti-alias FIR, cutoff
+        // Oversampling: 64-tap Blackman-windowed sinc anti-alias FIR, cutoff
         // 20 kHz at the 4x rate. Recomputed only when fs changes.
-        if (static_cast<int>(fir_.size()) != 32 || last_fir_fs_ != fs_) {
-            fir_.assign(32, 0.0f);
+        if (static_cast<int>(fir_.size()) != 64 || last_fir_fs_ != fs_) {
+            fir_.assign(64, 0.0f);
             const float fc = 20000.0f / (4.0f * fs_);
             float sum = 0.0f;
-            for (int k = 0; k < 32; ++k) {
-                const float m = k - 15.5f;
+            for (int k = 0; k < 64; ++k) {
+                const float m = k - 31.5f;
                 const float sinc = m == 0.0f ? 2.0f * fc
                     : std::sin(6.2831853f * fc * m) / (3.14159265f * m);
-                const float win = 0.42f - 0.5f * std::cos(6.2831853f * k / 31.0f)
-                    + 0.08f * std::cos(12.5663706f * k / 31.0f);
+                const float win = 0.42f - 0.5f * std::cos(6.2831853f * k / 63.0f)
+                    + 0.08f * std::cos(12.5663706f * k / 63.0f);
                 fir_[k] = sinc * win;
                 sum += fir_[k];
             }
@@ -101,7 +101,7 @@ public:
         if (model_ == 2) { // METAL: deep cascade, scooped, tight
             s1_gain_ = 4.0f + drive_ * 2.0f;
             clip_gain_ = 30.0f + drive_ * 60.0f;
-            makeup_ = 1.3f;
+            makeup_ = 0.85f;
             asym_ = 0.12f;
             gate_threshold_ = 0.0006f;
         } else if (model_ == 1) { // CRUNCH: same structure, milder voicing
@@ -121,7 +121,7 @@ public:
         float presenceDb = 1.5f;
         if (model_ == 2) {
             scoopDb = -4.0f;
-            presenceDb = 7.0f;
+            presenceDb = 4.5f;
         } else if (model_ == 1) {
             presenceDb = 1.5f;
         }
@@ -189,16 +189,16 @@ public:
         float shaped = in;
         if (model_ != 0) {
             // 4x linear upsample between the previous and current input,
-            // cascade at 4x rate, 32-tap sinc downsample.
+            // cascade at 4x rate, 64-tap sinc downsample.
             for (int j = 1; j <= 4; ++j) {
                 const float x = prev_in_ + (in - prev_in_) * (j / 4.0f);
                 sub_ring_[sub_w_] = cascade(x);
-                sub_w_ = sub_w_ + 1 == 32 ? 0 : sub_w_ + 1;
+                sub_w_ = sub_w_ + 1 == 64 ? 0 : sub_w_ + 1;
             }
             prev_in_ = in;
             float y = 0.0f;
-            for (int k = 0; k < 32; ++k) {
-                const int idx = sub_w_ - 1 - k < 0 ? sub_w_ - 1 - k + 32 : sub_w_ - 1 - k;
+            for (int k = 0; k < 64; ++k) {
+                const int idx = sub_w_ - 1 - k < 0 ? sub_w_ - 1 - k + 64 : sub_w_ - 1 - k;
                 y += fir_[k] * sub_ring_[idx];
             }
             // post-EQ at the native rate
@@ -247,10 +247,10 @@ public:
 
         const float mixed = dry * (1.0f - reverb_mix_) + wet * wet_gain_;
         float out = mixed * master_;
-        // Soft ceiling: linear below 0.98, smoothly limited above — a hard
-        // clamp would re-alias everything the oversampled clipper avoided.
-        constexpr float kCeil = 0.98f;
-        constexpr float kKnee = 0.03f;
+        // Soft ceiling: linear below 0.85, gently limited above — the wide
+        // knee keeps the limiter from re-aliasing a signal that rides it.
+        constexpr float kCeil = 0.85f;
+        constexpr float kKnee = 0.13f;
         if (out > kCeil) {
             out = kCeil + kKnee * std::tanh((out - kCeil) / kKnee);
         } else if (out < -kCeil) {
@@ -295,7 +295,7 @@ private:
     float dc_state_ = 0.0f;
     float prev_in_ = 0.0f;
     float gate_env_ = 0.0f;
-    float sub_ring_[32] = {};
+    float sub_ring_[64] = {};
     int sub_w_ = 0;
     float last_fir_fs_ = 0.0f;
     std::vector<float> fir_;
