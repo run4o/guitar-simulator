@@ -568,6 +568,11 @@ public final class AppContext {
     octEnabled.set(Boolean.parseBoolean(state.getOrDefault("oct.enabled", "false")));
     octMode.set(clamp(parse(state.getOrDefault("oct.mode", "0")), 0, 1));
     octMix.set(clamp(parse(state.getOrDefault("oct.mix", "0.7")), 0, 1));
+    loopEnabled.set(Boolean.parseBoolean(state.getOrDefault("loop.enabled", "false")));
+    loopLength.set(clamp(parse(state.getOrDefault("loop.length", "0.5")), 0, 1));
+    loopLevel.set(clamp(parse(state.getOrDefault("loop.level", "0.7")), 0, 1));
+    volEnabled.set(Boolean.parseBoolean(state.getOrDefault("vol.enabled", "false")));
+    volLevel.set(clamp(parse(state.getOrDefault("vol.level", "1")), 0, 1));
   }
 
   private static double parse(String value) {

@@ -222,5 +222,13 @@ public class PedalPanelController {
     loopLength.valueProperty().bindBidirectional(ctx.loopLengthProperty());
     loopLevel.valueProperty().bindBidirectional(ctx.loopLevelProperty());
     pedalRow.getChildren().add(looper);
+
+    // VOLUME: foot-potentiometer attenuation (audio taper)
+    Knob volLevel = new Knob(0, 1, 1.0, 44);
+    PedalBox volume = new PedalBox("VOLUME");
+    volume.addKnob(volLevel, "LEVEL");
+    volume.enabledProperty().bindBidirectional(ctx.volEnabledProperty());
+    volLevel.valueProperty().bindBidirectional(ctx.volLevelProperty());
+    pedalRow.getChildren().add(volume);
   }
 }
