@@ -8,8 +8,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.DoubleProperty;
+import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleDoubleProperty;
+import javafx.beans.property.SimpleIntegerProperty;
 
 /**
  * Application-wide state shared by every panel controller: the synthesis
@@ -99,6 +101,8 @@ public final class AppContext {
   private final BooleanProperty sprEnabled = new SimpleBooleanProperty(false);
   /** Pedalboard drawer (pop-out over the score): closed by default. */
   private final BooleanProperty pedalsOpen = new SimpleBooleanProperty(false);
+  /** Amp channel: 0 clean, 1 crunch, 2 metal. */
+  private final IntegerProperty ampModel = new SimpleIntegerProperty(0);
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
@@ -113,6 +117,7 @@ public final class AppContext {
     for (DoubleProperty p : new DoubleProperty[]{drive, tone, reverb, master}) {
       p.addListener((o, ov, nv) -> applyFx());
     }
+    ampModel.addListener((o, ov, nv) -> applyFx());
     for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
         distDrive, distTone, distLevel, distEnabled,
         fuzzAmount, fuzzVolume, fuzzEnabled,
@@ -469,6 +474,10 @@ public final class AppContext {
     return pedalsOpen;
   }
 
+  public IntegerProperty ampModelProperty() {
+    return ampModel;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -554,6 +563,7 @@ public final class AppContext {
     state.put("spr.dwell", Double.toString(sprDwell.get()));
     state.put("spr.mix", Double.toString(sprMix.get()));
     state.put("ui.pedalsOpen", Boolean.toString(pedalsOpen.get()));
+    state.put("ui.ampModel", Integer.toString(ampModel.get()));
     return state;
   }
 
@@ -625,6 +635,12 @@ public final class AppContext {
     sprDwell.set(clamp(parse(state.getOrDefault("spr.dwell", "0.5")), 0, 1));
     sprMix.set(clamp(parse(state.getOrDefault("spr.mix", "0.5")), 0, 1));
     pedalsOpen.set(Boolean.parseBoolean(state.getOrDefault("ui.pedalsOpen", "false")));
+    try {
+      ampModel.set(Math.max(0, Math.min(2, Integer.parseInt(
+          state.getOrDefault("ui.ampModel", "0")))));
+    } catch (NumberFormatException e) {
+      ampModel.set(0); // corrupt value falls back to the clean channel
+    }
   }
 
   private static double parse(String value) {
@@ -645,6 +661,7 @@ public final class AppContext {
     }
     engine.setFx((float) drive.get(), (float) tone.get(), (float) reverb.get(),
         (float) master.get());
+    engine.setAmpModel(ampModel.get());
   }
 
   private void applyPedals() {

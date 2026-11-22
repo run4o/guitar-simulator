@@ -46,6 +46,8 @@ public class SoundPanelController {
   private Knob fxTone;
   @FXML
   private Knob fxReverb;
+  @FXML
+  private javafx.scene.control.ComboBox<String> ampBox;
 
   private AppContext ctx;
   private Fader[] stringFaders;
@@ -65,6 +67,14 @@ public class SoundPanelController {
     fxDrive.valueProperty().bindBidirectional(ctx.driveProperty());
     fxTone.valueProperty().bindBidirectional(ctx.toneProperty());
     fxReverb.valueProperty().bindBidirectional(ctx.reverbProperty());
+
+    // Amp channel selector: index maps 1:1 onto the engine model (clean/crunch/metal)
+    ampBox.getItems().addAll("CLEAN", "CRUNCH", "METAL");
+    ampBox.getSelectionModel().select(ctx.ampModelProperty().get());
+    ampBox.getSelectionModel().selectedIndexProperty().addListener(
+        (o, ov, nv) -> ctx.ampModelProperty().set(nv.intValue()));
+    ctx.ampModelProperty().addListener(
+        (o, ov, nv) -> ampBox.getSelectionModel().select(nv.intValue()));
   }
 
   /**

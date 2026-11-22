@@ -2,6 +2,7 @@
 <?import dev.guitar.tabplayer.ui.controls.Fader?>
 <?import dev.guitar.tabplayer.ui.controls.Knob?>
 <?import javafx.geometry.Insets?>
+<?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.VBox?>
@@ -36,6 +37,13 @@
     <VBox spacing="4" alignment="TOP_CENTER">
       <Fader fx:id="fader5" fx:factory="fxFader"/>
       <Label fx:id="stringLabel5" text="--" styleClass="knob-label"/>
+    </VBox>
+  </HBox>
+  <Label styleClass="console-divider"/>
+  <HBox spacing="8" alignment="TOP_CENTER">
+    <VBox spacing="4" alignment="TOP_CENTER" minWidth="84">
+      <Label text="CHANNEL" styleClass="knob-label"/>
+      <ComboBox fx:id="ampBox" maxWidth="Infinity"/>
     </VBox>
   </HBox>
   <Label styleClass="console-divider"/>

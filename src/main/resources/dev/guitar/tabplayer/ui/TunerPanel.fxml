@@ -8,7 +8,7 @@
      guitar can be tuned by ear against the current tuning. Button
      captions follow the live tuning. -->
 <VBox fx:controller="dev.guitar.tabplayer.ui.controllers.TunerPanelController"
-      spacing="6" alignment="TOP_LEFT" styleClass="panel"
+      spacing="6" alignment="TOP_LEFT" styleClass="panel" minWidth="270"
       xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
   <padding>
     <Insets top="8" right="10" bottom="8" left="10"/>

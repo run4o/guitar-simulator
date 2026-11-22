@@ -39,6 +39,21 @@ class Phase5FxTest {
         return WavAnalysis.read(wav);
     }
 
+    /** Bright pluck (B4, string 5 fret 7) at max drive through one amp channel. */
+    private WavAnalysis.Wav renderChannel(int model, String tag) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("amp-" + tag + "-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setAmpModel(model);
+            engine.setFx(1f, 1f, 0f, 1f); // max drive, bright tone, no reverb
+            assertTrue(engine.renderSequenceToWav(wav, 0.6f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
     @Test
     void reverbLengthensDecayTail() throws Exception {
         WavAnalysis.Wav dry = render(0f, 1f, 0f, 1f);
@@ -143,5 +158,66 @@ class Phase5FxTest {
             }
         }
         return Math.round(crossings / 0.45);
+    }
+
+    /* ---- amp channels ------------------------------------------------------ */
+
+    /**
+     * Harmonic fizz: tone magnitudes above 2.4 kHz, where the cascaded
+     * clipper's generated harmonics live (the string's own harmonics
+     * dominate below that in every channel).
+     */
+    private float fizz(WavAnalysis.Wav wav) {
+        float sum = 0f;
+        for (double f : new double[]{2470.0, 3458.0, 4446.0, 5434.0}) {
+            sum += WavAnalysis.toneMagnitude(wav, 0.05, 0.25, f);
+        }
+        return sum;
+    }
+
+    @Test
+    void metalChannelAddsHarmonicBite() throws Exception {
+        // deep clipping generates fizz the clean channel never has
+        WavAnalysis.Wav clean = renderChannel(0, "clean");
+        WavAnalysis.Wav metal = renderChannel(2, "metal");
+        assertTrue(fizz(metal) > fizz(clean) * 2.0f,
+                "max-drive metal must fatten the upper harmonics, fizz " + fizz(metal)
+                        + " vs clean " + fizz(clean));
+    }
+
+    @Test
+    void crunchSitsBetweenCleanAndMetal() throws Exception {
+        WavAnalysis.Wav clean = renderChannel(0, "clean");
+        WavAnalysis.Wav crunch = renderChannel(1, "crunch");
+        WavAnalysis.Wav metal = renderChannel(2, "metal");
+        float cleanFizz = fizz(clean);
+        float crunchFizz = fizz(crunch);
+        float metalFizz = fizz(metal);
+        assertTrue(crunchFizz > cleanFizz && crunchFizz < metalFizz,
+                "crunch must sit between clean and metal on fizz, " + cleanFizz
+                        + " < " + crunchFizz + " < " + metalFizz);
+    }
+
+    @Test
+    void metalChannelKeepsTheLevelSane() throws Exception {
+        // cascaded stages compress hard; the makeup gain must not blast or drop
+        WavAnalysis.Wav clean = renderChannel(0, "clean");
+        WavAnalysis.Wav metal = renderChannel(2, "metal");
+        float ratio = WavAnalysis.rms(metal, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.45f && ratio < 2.0f,
+                "metal body must stay in sane range vs clean, ratio=" + ratio);
+    }
+
+    @Test
+    void metalChannelStaysInBoundsAndDeterministic() throws Exception {
+        WavAnalysis.Wav a = renderChannel(2, "metal-a");
+        WavAnalysis.Wav b = renderChannel(2, "metal-b");
+        assertTrue(WavAnalysis.peak(a, 0.0, 2.5) <= 1.0f,
+                "metal output must respect the soft ceiling");
+        for (int i = 0; i < a.samples().length; i++) {
+            if (a.samples()[i] != b.samples()[i]) {
+                fail("metal render must be deterministic at sample " + i);
+            }
+        }
     }
 }

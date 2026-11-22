@@ -54,6 +54,17 @@ class PedalStateTest {
   }
 
   @Test
+  void ampModelRoundTripsAndDefaultsToClean() {
+    AppContext fresh = newContext();
+    assertEquals(0, fresh.ampModelProperty().get(), "fresh context is the CLEAN channel");
+    fresh.ampModelProperty().set(2); // METAL
+    AppContext target = newContext();
+    target.loadPedalState(fresh.pedalState());
+    assertEquals(2, target.ampModelProperty().get(),
+            "the amp channel must ride the pedal state map");
+  }
+
+  @Test
   void pedalStateRoundTripsThroughTheProjectFile() throws Exception {
     AppContext source = newContext();
     source.pedalsOpenProperty().set(true);

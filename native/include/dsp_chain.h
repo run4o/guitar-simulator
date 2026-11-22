@@ -49,6 +49,7 @@ public:
 
         hp_state_ = 0.0f;
         tone_s1_ = tone_s2_ = 0.0f;
+        pre_state_ = lp_a_ = bp_a_ = hp_p_ = dc_state_ = 0.0f;
         setParams(drive_, tone_, reverb_mix_, master_);
     }
 
@@ -57,22 +58,71 @@ public:
         tone_ = std::clamp(tone, 0.0f, 1.0f);
         reverb_mix_ = std::clamp(reverb_mix, 0.0f, 1.0f);
         master_ = std::clamp(master, 0.0f, 2.0f);
+        model_ = std::clamp(model_, 0, 2);
 
         const float cutoff = 500.0f * std::pow(32.0f, tone_); // 500 Hz .. 16 kHz
         tone_coef_ = 1.0f - std::exp(-6.2831853f * cutoff / fs_);
         hp_coef_ = 1.0f - std::exp(-6.2831853f * 400.0f / fs_);
 
-        clip_gain_ = 1.0f + drive_ * 24.0f;
-        makeup_ = 0.9f + drive_ * 0.7f;
+        // channel voicings: CLEAN keeps the classic single soft-clip, CRUNCH
+        // and METAL run a cascaded gain structure (pre-cut -> input stage ->
+        // main clipper) with post shaping. DRIVE acts as the channel gain.
+        pre_cut_coef_ = 1.0f - std::exp(-6.2831853f * 80.0f / fs_);
+        lp_a_coef_ = 1.0f - std::exp(-6.2831853f * 900.0f / fs_);
+        bp_a_coef_ = 1.0f - std::exp(-6.2831853f * 250.0f / fs_);
+        hp_p_coef_ = 1.0f - std::exp(-6.2831853f * 3500.0f / fs_);
+        dc_coef_ = 1.0f - std::exp(-6.2831853f * 12.0f / fs_);
+        if (model_ == 2) { // METAL: deep cascade, scooped, tight
+            s1_gain_ = 3.0f + drive_ * 2.0f;
+            clip_gain_ = 3.0f + drive_ * 25.0f;
+            makeup_ = 1.05f;
+            asym_ = 0.15f;
+            scoop_ = 0.30f;
+            presence_ = 0.22f;
+        } else if (model_ == 1) { // CRUNCH: same structure, milder voicing
+            s1_gain_ = 1.6f + drive_ * 0.8f;
+            clip_gain_ = 2.0f + drive_ * 10.0f;
+            makeup_ = 1.05f;
+            asym_ = 0.05f;
+            scoop_ = 0.15f;
+            presence_ = 0.10f;
+        } else { // CLEAN: the original single-tanh path
+            clip_gain_ = 1.0f + drive_ * 24.0f;
+            makeup_ = 0.9f + drive_ * 0.7f;
+        }
 
         comb_fb_ = 0.72f + 0.16f * reverb_mix_;
         wet_gain_ = 0.9f * reverb_mix_ * (0.35f + comb_fb_); // louder tail at longer decay
     }
 
+    /** Amp channel: 0 clean, 1 crunch, 2 metal. */
+    void setModel(int model) {
+        model_ = std::clamp(model, 0, 2);
+        setParams(drive_, tone_, reverb_mix_, master_);
+    }
+
     float process(float in) {
         // drive: 400 Hz high-pass -> gain -> tanh -> makeup -> dry/wet blend
         float shaped = in;
-        if (drive_ > 0.0005f) {
+        if (model_ != 0 && drive_ > 0.0005f) {
+            // pre-shape: low-cut tightens the cascade's low end
+            pre_state_ += pre_cut_coef_ * (in - pre_state_);
+            float x = in - pre_state_;
+            // stage 1: input compression before the main clipper
+            x = std::tanh(s1_gain_ * x);
+            // stage 2: main clipper with a touch of asymmetric diode bite
+            float c = std::tanh(clip_gain_ * x);
+            c += asym_ * c * c;
+            dc_state_ += dc_coef_ * (c - dc_state_);
+            c -= dc_state_;
+            // post shaping: mid scoop + presence lift
+            lp_a_ += lp_a_coef_ * (c - lp_a_);
+            bp_a_ += bp_a_coef_ * (lp_a_ - bp_a_);
+            float y = c - scoop_ * (lp_a_ - bp_a_);
+            hp_p_ += hp_p_coef_ * (y - hp_p_);
+            y += presence_ * (y - hp_p_);
+            shaped = (1.0f - drive_) * in + drive_ * (y * makeup_);
+        } else if (drive_ > 0.0005f) {
             hp_state_ += hp_coef_ * (in - hp_state_);
             const float hp = in - hp_state_;
             const float clipped = std::tanh(clip_gain_ * hp) * makeup_;
@@ -126,14 +176,29 @@ private:
     static constexpr float kDamp2 = 0.6f; // fresh-sample weight
 
     float fs_ = 44100.0f;
+    int model_ = 0;
     float drive_ = 0.0f;
     float tone_ = 1.0f;
     float reverb_mix_ = 0.0f;
     float master_ = 1.0f;
     float clip_gain_ = 1.0f;
     float makeup_ = 0.9f;
+    float s1_gain_ = 1.0f;
+    float asym_ = 0.0f;
+    float scoop_ = 0.0f;
+    float presence_ = 0.0f;
+    float pre_cut_coef_ = 0.01f;
+    float lp_a_coef_ = 0.1f;
+    float bp_a_coef_ = 0.1f;
+    float hp_p_coef_ = 0.5f;
+    float dc_coef_ = 0.01f;
     float hp_coef_ = 0.05f;
     float hp_state_ = 0.0f;
+    float pre_state_ = 0.0f;
+    float lp_a_ = 0.0f;
+    float bp_a_ = 0.0f;
+    float hp_p_ = 0.0f;
+    float dc_state_ = 0.0f;
     float tone_coef_ = 0.5f;
     float tone_s1_ = 0.0f;
     float tone_s2_ = 0.0f;

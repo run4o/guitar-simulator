@@ -61,6 +61,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setTunerFn;
   private final MethodHandle setCabinetFn;
   private final MethodHandle setSpringFn;
+  private final MethodHandle setAmpModelFn;
   private final MethodHandle getTunerHzFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
@@ -141,6 +142,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
       setSpringFn = linker.downcallHandle(symbols.find("guitar_engine_set_spring").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setAmpModelFn = linker.downcallHandle(symbols.find("guitar_engine_set_amp_model").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_INT));
       getTunerHzFn = linker.downcallHandle(symbols.find("guitar_engine_get_tuner_hz").orElseThrow(),
           FunctionDescriptor.of(C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
@@ -664,6 +667,18 @@ public final class GuitarEngine implements AutoCloseable {
       setSpringFn.invokeExact(enabled, dwell, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_spring failed", t);
+    }
+  }
+
+  /**
+   * Amp channel: 0 clean, 1 crunch, 2 metal. The DRIVE knob acts as the
+   * channel's gain.
+   */
+  public void setAmpModel(int model) {
+    try {
+      setAmpModelFn.invokeExact(model);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_amp_model failed", t);
     }
   }
 

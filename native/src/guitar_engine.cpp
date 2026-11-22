@@ -99,6 +99,7 @@ struct FxParams {
     std::atomic<float> tone{1.0f};
     std::atomic<float> reverb_mix{0.0f};
     std::atomic<float> master{1.0f};
+    std::atomic<int> amp_model{0}; // 0 clean, 1 crunch, 2 metal
 };
 FxParams g_fx;
 
@@ -253,17 +254,21 @@ void apply_event(EngineState& s, const EngineEvent& ev) {
 }
 
 /* Snapshot FX params from the atomics; called once per callback block. */
-void sync_fx_params(gte::FxDsp& fx, float cached[4]) {
+void sync_fx_params(gte::FxDsp& fx, float cached[5]) {
     const float drive = g_fx.drive.load(std::memory_order_relaxed);
     const float tone = g_fx.tone.load(std::memory_order_relaxed);
     const float mix = g_fx.reverb_mix.load(std::memory_order_relaxed);
     const float master = g_fx.master.load(std::memory_order_relaxed);
-    if (drive != cached[0] || tone != cached[1] || mix != cached[2] || master != cached[3]) {
+    const int model = g_fx.amp_model.load(std::memory_order_relaxed);
+    if (drive != cached[0] || tone != cached[1] || mix != cached[2] || master != cached[3]
+        || static_cast<float>(model) != cached[4]) {
         fx.setParams(drive, tone, mix, master);
+        fx.setModel(model);
         cached[0] = drive;
         cached[1] = tone;
         cached[2] = mix;
         cached[3] = master;
+        cached[4] = static_cast<float>(model);
     }
 }
 
@@ -455,8 +460,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     const uint64_t base = s.frames_rendered.load(std::memory_order_relaxed);
     EngineEvent ev;
 
-    static thread_local float fx_cached_l[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
-    static thread_local float fx_cached_r[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    static thread_local float fx_cached_l[5] = {  -1.0f, -1.0f, -1.0f, -1.0f , -1.0f };
+    static thread_local float fx_cached_r[5] = {  -1.0f, -1.0f, -1.0f, -1.0f , -1.0f };
     sync_fx_params(s.fx_l, fx_cached_l);
     sync_fx_params(s.fx_r, fx_cached_r);
     static thread_local float pedal_cached_l[65] = {             -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f , -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
@@ -794,6 +799,12 @@ GTE_EXPORT void guitar_engine_set_spring(bool enabled, float dwell, float mix) {
     g_pedals.spr_mix.store(std::clamp(mix, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
+/* Amp channel: 0 clean, 1 crunch, 2 metal (the DRIVE knob acts as the
+ * channel's gain). Applies to both realtime and offline paths. */
+GTE_EXPORT void guitar_engine_set_amp_model(int model) {
+    g_fx.amp_model.store(std::clamp(model, 0, 2), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -831,7 +842,7 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
     gte::FxDsp fx;
     fx.prepare(fs);
     {
-        float cached[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
+        float cached[5] = {  -1.0f, -1.0f, -1.0f, -1.0f , -1.0f };
         sync_fx_params(fx, cached);
     }
     gte::PedalChain pedals;
