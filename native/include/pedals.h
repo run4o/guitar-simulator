@@ -896,6 +896,56 @@ private:
 };
 
 /*
+ * Tuner: mutes the output and measures the incoming pitch instead — an
+ * envelope-gated zero-crossing period tracker (rising edges, smoothed
+ * 80/20) drives a Hz estimate that the host reads back through
+ * guitar_engine_get_tuner_hz(). The output is silent while engaged.
+ */
+class TunerPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        env_ = 0.0f;
+        lastSign_ = 1;
+        samplesSinceCross_ = 0;
+        period_ = 0.0f;
+        hz_ = 0.0f;
+    }
+
+    float process(float in) override {
+        const float abs = std::fabs(in);
+        env_ += 0.001f * (abs - env_);
+        const int sign = in >= 0.0f ? 1 : -1;
+        samplesSinceCross_++;
+        if (sign != lastSign_) {
+            lastSign_ = sign;
+            if (sign > 0) { // rising edge completes a half period... two per cycle
+                if (period_ > 0.0f) {
+                    period_ = period_ * 0.8f + samplesSinceCross_ * 0.2f;
+                } else {
+                    period_ = static_cast<float>(samplesSinceCross_);
+                }
+                samplesSinceCross_ = 0;
+                if (env_ > 0.02f && period_ > 0.0f) {
+                    hz_ = fs_ / (2.0f * period_);
+                }
+            }
+        }
+        return 0.0f; // the tuner mutes the output
+    }
+
+    float hz() const { return hz_; }
+
+private:
+    float fs_ = 44100.0f;
+    float env_ = 0.0f;
+    float period_ = 0.0f;
+    float hz_ = 0.0f;
+    int lastSign_ = 1;
+    int samplesSinceCross_ = 0;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -1006,6 +1056,12 @@ public:
         volume_.setParams(level);
     }
 
+    void setTuner(bool enabled) {
+        tuner_.enabled = enabled;
+    }
+
+    float tunerHz() const { return tuner_.hz(); }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -1058,6 +1114,9 @@ public:
         if (volume_.enabled) {
             in = volume_.process(in);
         }
+        if (tuner_.enabled) {
+            in = tuner_.process(in);
+        }
         return in;
     }
 
@@ -1080,6 +1139,7 @@ private:
     OctavePedal octave_;
     LooperPedal looper_;
     VolumePedal volume_;
+    TunerPedal tuner_;
 };
 
 } // namespace gte
