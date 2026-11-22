@@ -47,7 +47,7 @@ public:
 
     void pluck(int fret, float velocity, bool palm_mute) {
         float f = open_frequency_ * std::pow(2.0f, fret / 12.0f);
-        nominal_delay_ = clamp_delay(fs_ / f);
+        nominal_delay_ = clamp_delay(fs_ / f - disp_gd_);
         delay_ = nominal_delay_;
         target_delay_ = nominal_delay_;
         slew_per_sample_ = 0.0f;
@@ -60,7 +60,7 @@ public:
      * > 0 gives an audible glide (true slide); 0 = the fast default. */
     void legato(int target_fret, float slew_seconds) {
         float f = open_frequency_ * std::pow(2.0f, target_fret / 12.0f);
-        nominal_delay_ = clamp_delay(fs_ / f);
+        nominal_delay_ = clamp_delay(fs_ / f - disp_gd_);
         slew_to(nominal_delay_,
                 slew_seconds > 0.0f ? slew_seconds : kLegatoSlewSeconds);
         set_envelope(model_t60_ * sustain_mult_, model_cutoff_);
@@ -80,7 +80,7 @@ public:
      * pure sine of that partial, giving the flute-like harmonic timbre. */
     void pluck_harmonic(int node_fret, float velocity, bool palm_mute) {
         float partial = 1.0f / (1.0f - std::pow(2.0f, -node_fret / 12.0f));
-        nominal_delay_ = clamp_delay(fs_ / (open_frequency_ * partial));
+        nominal_delay_ = clamp_delay(fs_ / (open_frequency_ * partial) - disp_gd_);
         delay_ = nominal_delay_;
         target_delay_ = nominal_delay_;
         slew_per_sample_ = 0.0f;
@@ -131,6 +131,10 @@ public:
                 pickup_frac2_ = -1.0f;
                 break;
         }
+        // string stiffness: per-model dispersion strength; the DC group
+        // delay of the two loop allpasses is pre-compensated in the tuning
+        disp_a_ = model_ == 0 ? 0.30f : (model_ == 1 ? 0.40f : 0.45f);
+        disp_gd_ = 2.0f * (2.0f * disp_a_ / (1.0f - disp_a_ * disp_a_));
         set_envelope(model_t60_, model_cutoff_);
     }
 
@@ -180,6 +184,17 @@ public:
         lp_state_ += loop_coef_ * (ap - lp_state_);
 
         float fb = lp_state_ * decay_gain_;
+        // Stiffness dispersion: two first-order allpasses whose group delay
+        // decreases with frequency, so upper partials travel a shorter
+        // effective loop — slightly sharp, like real steel strings. The
+        // nominal delay is compensated for the allpasses' DC group delay.
+        if (disp_a_ > 0.0f) {
+            float d1 = disp_a_ * (disp_y1_ - fb) + disp_x1_;
+            disp_x1_ = fb; disp_y1_ = d1;
+            float d2 = disp_a_ * (disp_y2_ - d1) + disp_x2_;
+            disp_x2_ = d1; disp_y2_ = d2;
+            fb = d2;
+        }
         buf_[write_idx_] = fb;
         write_idx_ = wrap(write_idx_ + 1);
 
@@ -270,6 +285,7 @@ private:
     }
 
     void excite(float velocity) {        std::fill(buf_.begin(), buf_.end(), 0.0f); // choke any ringing energy
+        disp_x1_ = disp_y1_ = disp_x2_ = disp_y2_ = 0.0f;
         int count = std::min(static_cast<int>(std::ceil(delay_)) + 4, kBufferSamples - 8);
         float amp = velocity;
         float last = 0.0f;
@@ -299,6 +315,10 @@ private:
     int model_ = 0;
     float model_t60_ = kNormalT60;
     float sustain_mult_ = 1.0f;
+    float disp_a_ = 0.0f;   // stiffness dispersion allpass coefficient
+    float disp_gd_ = 0.0f;  // the allpasses' DC group delay (tuning-compensated)
+    float disp_x1_ = 0.0f, disp_y1_ = 0.0f;
+    float disp_x2_ = 0.0f, disp_y2_ = 0.0f;
     float model_cutoff_ = kNormalCutoff;
     float excite_smooth_ = kExciteSmooth;
     float pickup_frac_ = -1.0f;

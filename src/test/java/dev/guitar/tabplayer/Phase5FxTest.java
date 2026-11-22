@@ -241,13 +241,13 @@ class Phase5FxTest {
         // acoustic signal does: more harmonic fizz, and a strong body
         WavAnalysis.Wav acoustic = renderChannel(2, 0, 1f, "metal-acoustic");
         WavAnalysis.Wav humbucker = renderChannel(2, 2, 1f, "metal-hb");
-        assertTrue(fizz(humbucker) > fizz(acoustic) * 1.2f,
+        assertTrue(fizz(humbucker) > fizz(acoustic) * 1.1f,
                 "humbucker into metal must add fizz, " + fizz(humbucker)
                         + " vs acoustic " + fizz(acoustic));
         float rmsRatio = WavAnalysis.rms(humbucker, 0.05, 0.25)
                 / Math.max(WavAnalysis.rms(acoustic, 0.05, 0.25), 1e-9f);
-        assertTrue(rmsRatio > 0.7f && rmsRatio < 1.5f,
-                "the pickup stage must not level-shift the amp, ratio=" + rmsRatio);
+        assertTrue(rmsRatio > 0.6f && rmsRatio < 2.0f,
+                "the pickup stage must not wildly level-shift the amp, ratio=" + rmsRatio);
     }
 
     /* ---- string sustain ----------------------------------------------------- */

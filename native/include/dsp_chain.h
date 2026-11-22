@@ -52,6 +52,7 @@ public:
         pre_state_ = hp2_state_ = dc_state_ = 0.0f;
         prev_in_ = 0.0f;
         gate_env_ = 0.0f;
+        sag_env_ = sag_bias_ = 0.0f;
         std::fill(std::begin(sub_ring_), std::end(sub_ring_), 0.0f);
         sub_w_ = 0;
         scoop_x1_ = scoop_x2_ = scoop_y1_ = scoop_y2_ = 0.0f;
@@ -103,12 +104,14 @@ public:
             clip_gain_ = 30.0f + drive_ * 60.0f;
             makeup_ = 0.85f;
             asym_ = 0.12f;
+            sag_depth_ = 0.22f;
             gate_threshold_ = 0.0006f;
         } else if (model_ == 1) { // CRUNCH: same structure, milder voicing
             s1_gain_ = 2.0f + drive_ * 1.0f;
             clip_gain_ = 8.0f + drive_ * 25.0f;
             makeup_ = 1.0f;
             asym_ = 0.05f;
+            sag_depth_ = 0.08f;
             gate_threshold_ = 0.0004f;
         } else { // CLEAN: the original single-tanh path
             clip_gain_ = 1.0f + drive_ * 24.0f;
@@ -161,14 +164,16 @@ public:
     }
 
     // Oversampled cascade: pre-cut -> input stage -> main clipper with a
-    // touch of asymmetric diode bite (DC-blocked). Runs at 4x rate.
+    // touch of asymmetric diode bite (DC-blocked). Runs at 4x rate. The
+    // bias point drifts with playing dynamics (tube sag): loud passages
+    // shift the clipper's operating point, compressing and blooming.
     float cascade(float x) {
         float s = x - pre_state_;
         pre_state_ += pre_cut_coef_ * (x - pre_state_);
         s = std::tanh(s1_gain_ * s);
         s = s - hp2_state_;
         hp2_state_ += pre_cut_coef_ * (s - hp2_state_);
-        float c = std::tanh(clip_gain_ * s);
+        float c = std::tanh(clip_gain_ * (s + sag_bias_));
         c += asym_ * c * c;
         c -= dc_state_;
         dc_state_ += dc_coef_ * (c - dc_state_);
@@ -188,6 +193,14 @@ public:
         // drive: 400 Hz high-pass -> gain -> tanh -> makeup -> dry/wet blend
         float shaped = in;
         if (model_ != 0) {
+            // tube sag: a slow envelope follower drifts the clipper's bias
+            // with playing loudness (attack 10 ms, release 120 ms)
+            const float lvl = std::fabs(in);
+            const float env_coef = lvl > sag_env_
+                ? 1.0f - std::exp(-1.0f / (0.010f * fs_))
+                : 1.0f - std::exp(-1.0f / (0.120f * fs_));
+            sag_env_ += env_coef * (lvl - sag_env_);
+            sag_bias_ = -sag_depth_ * std::min(1.0f, sag_env_ * 4.0f);
             // 4x linear upsample between the previous and current input,
             // cascade at 4x rate, 64-tap sinc downsample.
             for (int j = 1; j <= 4; ++j) {
@@ -285,6 +298,9 @@ private:
     float makeup_ = 0.9f;
     float s1_gain_ = 1.0f;
     float asym_ = 0.0f;
+    float sag_depth_ = 0.0f;
+    float sag_env_ = 0.0f;
+    float sag_bias_ = 0.0f;
     float gate_threshold_ = 0.0f;
     float pre_cut_coef_ = 0.01f;
     float dc_coef_ = 0.01f;

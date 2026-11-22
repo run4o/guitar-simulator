@@ -954,13 +954,65 @@ private:
  * "amp-in-the-room" tamer for the otherwise flat synth voice.
  */
 class CabinetPedal : public Pedal {
+private:
+    /* Generic RBJ biquad section with its own state. */
+    struct Section {
+        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
+        float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f;
+
+        void reset() { x1 = x2 = y1 = y2 = 0.0f; }
+
+        void setPeaking(float fs, float f0, float q, float db) {
+            const float w0 = 6.2831853f * f0 / fs;
+            const float alpha = std::sin(w0) / (2.0f * q);
+            const float A = std::pow(10.0f, db / 40.0f);
+            const float a0 = 1.0f + alpha / A;
+            b0 = (1.0f + alpha * A) / a0;
+            b1 = -2.0f * std::cos(w0) / a0;
+            b2 = (1.0f - alpha * A) / a0;
+            a1 = b1;
+            a2 = (1.0f - alpha / A) / a0;
+        }
+
+        void setHighPass(float fs, float f0, float q) {
+            const float w0 = 6.2831853f * f0 / fs;
+            const float c = std::cos(w0);
+            const float alpha = std::sin(w0) / (2.0f * q);
+            const float a0 = 1.0f + alpha;
+            b0 = (1.0f + c) / 2.0f / a0;
+            b1 = -(1.0f + c) / a0;
+            b2 = b0;
+            a1 = -2.0f * c / a0;
+            a2 = (1.0f - alpha) / a0;
+        }
+
+        void setLowPass(float fs, float f0, float q) {
+            const float w0 = 6.2831853f * f0 / fs;
+            const float c = std::cos(w0);
+            const float alpha = std::sin(w0) / (2.0f * q);
+            const float a0 = 1.0f + alpha;
+            b0 = (1.0f - c) / 2.0f / a0;
+            b1 = (1.0f - c) / a0;
+            b2 = b0;
+            a1 = -2.0f * c / a0;
+            a2 = (1.0f - alpha) / a0;
+        }
+
+        float process(float x) {
+            const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1; x1 = x; y2 = y1; y1 = y;
+            return y;
+        }
+    };
+
 public:
     void prepare(float sample_rate) override {
         fs_ = sample_rate;
-        x1_hp_ = x2_hp_ = y1_hp_ = y2_hp_ = 0.0f;
-        x1_lp1_ = x2_lp1_ = y1_lp1_ = y2_lp1_ = 0.0f;
-        x1_lp2_ = x2_lp2_ = y1_lp2_ = y2_lp2_ = 0.0f;
-        x1_md_ = x2_md_ = y1_md_ = y2_md_ = 0.0f;
+        ultra_state_ = 0.0f;
+        for (auto& s : sections_) {
+            s.reset();
+        }
+        design();
     }
 
     void setParams(float mix) {
@@ -968,63 +1020,38 @@ public:
     }
 
     float process(float in) override {
-        // RBJ high-pass, fc = 70 Hz, Q = 0.707 (Butterworth)
-        const float whp = 6.2831853f * 70.0f / fs_;
-        const float cwhp = std::cos(whp);
-        const float ahp = std::sin(whp) / (2.0f * 0.70710678f);
-        const float hp_a0 = 1.0f + ahp;
-        const float hp_b0 = (1.0f + cwhp) / 2.0f / hp_a0;
-        const float hp_b1 = -(1.0f + cwhp) / hp_a0;
-        const float hp_b2 = hp_b0;
-        const float hp_a1 = -2.0f * cwhp / hp_a0;
-        const float hp_a2 = (1.0f - ahp) / hp_a0;
-        const float hp = hp_b0 * in + hp_b1 * x1_hp_ + hp_b2 * x2_hp_
-            - hp_a1 * y1_hp_ - hp_a2 * y2_hp_;
-        x2_hp_ = x1_hp_; x1_hp_ = in; y2_hp_ = y1_hp_; y1_hp_ = hp;
-
-        // RBJ peaking EQ, fc = 400 Hz, Q = 1.0, -4 dB dip
-        const float wmd = 6.2831853f * 400.0f / fs_;
-        const float cmd = std::cos(wmd);
-        const float amd = std::sin(wmd) / (2.0f * 1.0f);
-        const float A = std::pow(10.0f, -4.0f / 40.0f); // -4 dB
-        const float md_a0 = 1.0f + amd / A;
-        const float md_b0 = (1.0f + amd * A) / md_a0;
-        const float md_b1 = -2.0f * cmd / md_a0;
-        const float md_b2 = (1.0f - amd * A) / md_a0;
-        const float md_a1 = -2.0f * cmd / md_a0;
-        const float md_a2 = (1.0f - amd / A) / md_a0;
-        const float mid = md_b0 * hp + md_b1 * x1_md_ + md_b2 * x2_md_
-            - md_a1 * y1_md_ - md_a2 * y2_md_;
-        x2_md_ = x1_md_; x1_md_ = hp; y2_md_ = y1_md_; y1_md_ = mid;
-
-        // RBJ low-pass x2 (cascaded), fc = 5 kHz, Q = 0.707 — real cone
-        // roll-off is steep, and one Butterworth stage is too gentle
-        const float wlp = 6.2831853f * 5000.0f / fs_;
-        const float clp = std::cos(wlp);
-        const float alp = std::sin(wlp) / (2.0f * 0.70710678f);
-        const float lp_a0 = 1.0f + alp;
-        const float lp_b0 = (1.0f - clp) / 2.0f / lp_a0;
-        const float lp_b1 = (1.0f - clp) / lp_a0;
-        const float lp_b2 = lp_b0;
-        const float lp_a1 = -2.0f * clp / lp_a0;
-        const float lp_a2 = (1.0f - alp) / lp_a0;
-        const float lp1 = lp_b0 * mid + lp_b1 * x1_lp1_ + lp_b2 * x2_lp1_
-            - lp_a1 * y1_lp1_ - lp_a2 * y2_lp1_;
-        x2_lp1_ = x1_lp1_; x1_lp1_ = mid; y2_lp1_ = y1_lp1_; y1_lp1_ = lp1;
-        const float lp = lp_b0 * lp1 + lp_b1 * x1_lp2_ + lp_b2 * x2_lp2_
-            - lp_a1 * y1_lp2_ - lp_a2 * y2_lp2_;
-        x2_lp2_ = x1_lp2_; x1_lp2_ = lp1; y2_lp2_ = y1_lp2_; y1_lp2_ = lp;
-
-        return in + (lp - in) * mix_;
+        float x = in;
+        for (auto& s : sections_) {
+            x = s.process(x);
+        }
+        // one-pole ultra-high cut (cone breakup's last bite)
+        ultra_state_ += ultra_coef_ * (x - ultra_state_);
+        x = ultra_state_;
+        return in + (x - in) * mix_;
     }
 
 private:
+    /* A closed-back 4x12 with Celestion-flavor voicing: closed-back low
+     * roll-off, the big low-mid thump, the mid scoop, the upper-mid edge,
+     * a presence spike, the steep cone roll-off and an ultra cut. Static
+     * biquads can't equal a measured IR, but eight sections get the
+     * resonant character a three-filter sketch never had. */
+    void design() {
+        sections_[0].setHighPass(fs_, 85.0f, 0.9f);   // closed-back thump control
+        sections_[1].setPeaking(fs_, 120.0f, 1.1f, 3.5f);  // low-mid thump
+        sections_[2].setPeaking(fs_, 450.0f, 0.9f, -4.0f); // mid scoop
+        sections_[3].setPeaking(fs_, 1400.0f, 1.0f, 2.5f); // upper-mid edge
+        sections_[4].setPeaking(fs_, 3200.0f, 1.5f, 2.0f); // presence spike
+        sections_[5].setLowPass(fs_, 5200.0f, 0.8f);  // cone roll-off x2
+        sections_[6].setLowPass(fs_, 5200.0f, 0.8f);
+        ultra_coef_ = 1.0f - std::exp(-6.2831853f * 9000.0f / fs_);
+    }
+
     float fs_ = 44100.0f;
     float mix_ = 1.0f;
-    float x1_hp_ = 0.0f, x2_hp_ = 0.0f, y1_hp_ = 0.0f, y2_hp_ = 0.0f;
-    float x1_lp1_ = 0.0f, x2_lp1_ = 0.0f, y1_lp1_ = 0.0f, y2_lp1_ = 0.0f;
-    float x1_lp2_ = 0.0f, x2_lp2_ = 0.0f, y1_lp2_ = 0.0f, y2_lp2_ = 0.0f;
-    float x1_md_ = 0.0f, x2_md_ = 0.0f, y1_md_ = 0.0f, y2_md_ = 0.0f;
+    float ultra_coef_ = 0.5f;
+    float ultra_state_ = 0.0f;
+    Section sections_[7];
 };
 
 /*
