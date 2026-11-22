@@ -17,3 +17,4 @@ Thumbs.db
 .DS_Store
 
 # Toolchain (kept outside the project: D:\Tools)
+hs_err_pid*.log
