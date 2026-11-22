@@ -7,6 +7,7 @@ import java.util.function.IntConsumer;
 import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.input.ScrollEvent;
@@ -26,6 +27,10 @@ public class GuitarPanelController {
   private ComboBox<Tuning> tuningBox;
   @FXML
   private Spinner<Integer> bpmSpinner;
+  @FXML
+  private dev.guitar.tabplayer.ui.controls.Knob sustainKnob;
+  @FXML
+  private Label sustainLabel;
 
   private AppContext ctx;
   private Consumer<Tuning> tuningListener;
@@ -69,6 +74,13 @@ public class GuitarPanelController {
         tuningListener.accept(nv);
       }
     });
+    sustainKnob.valueProperty().bindBidirectional(ctx.sustainProperty());
+    sustainKnob.valueProperty().addListener((o, ov, nv) -> {
+      double d = nv.doubleValue();
+      sustainLabel.setText(Math.abs(d - 0.5) < 0.01 ? "nominal"
+          : String.format("%s%.1fx", d > 0.5 ? "+" : "", AppContext.sustainMultiplier(d)));
+    });
+    sustainLabel.setText("nominal");
   }
 
   public void setTuningListener(Consumer<Tuning> tuningListener) {

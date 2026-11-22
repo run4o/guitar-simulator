@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<?import dev.guitar.tabplayer.ui.controls.Knob?>
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.Spinner?>
+<?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.VBox?>
 
 <!-- Guitar panel: MODEL selector, TUNE selector and the BPM tempo setting. -->
@@ -18,4 +20,9 @@
   <ComboBox fx:id="tuningBox"/>
   <Label text="BPM" styleClass="model-tag"/>
   <Spinner fx:id="bpmSpinner" editable="true"/>
+  <Label text="SUSTAIN" styleClass="model-tag"/>
+  <HBox spacing="6" alignment="CENTER_LEFT">
+    <Knob fx:id="sustainKnob" value="0.5"/>
+    <Label fx:id="sustainLabel" text="nominal" styleClass="knob-label"/>
+  </HBox>
 </VBox>

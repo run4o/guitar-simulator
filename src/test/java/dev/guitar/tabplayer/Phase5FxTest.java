@@ -249,4 +249,33 @@ class Phase5FxTest {
         assertTrue(rmsRatio > 0.7f && rmsRatio < 1.5f,
                 "the pickup stage must not level-shift the amp, ratio=" + rmsRatio);
     }
+
+    /* ---- string sustain ----------------------------------------------------- */
+
+    /** Single pluck, no mute, long render — measures the ring-out tail. */
+    private WavAnalysis.Wav renderSustain(float multiplier) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f));
+        Path wav = tempDir.resolve("sustain-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setSustain(multiplier);
+            assertTrue(engine.renderSequenceToWav(wav, 3.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void sustainKnobControlsRingOut() throws Exception {
+        float base = WavAnalysis.rms(renderSustain(1.0f), 1.5, 2.5);
+        float long_ = WavAnalysis.rms(renderSustain(4.0f), 1.5, 2.5);
+        float short_ = WavAnalysis.rms(renderSustain(0.25f), 1.5, 2.5);
+        assertTrue(long_ > base * 2.0f,
+                "4x sustain must ring well past the nominal decay, " + long_
+                        + " vs base " + base);
+        assertTrue(short_ < base * 0.5f,
+                "quarter sustain must die before the nominal decay, " + short_
+                        + " vs base " + base);
+    }
 }

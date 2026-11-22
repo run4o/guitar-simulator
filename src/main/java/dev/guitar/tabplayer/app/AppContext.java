@@ -103,6 +103,8 @@ public final class AppContext {
   private final BooleanProperty pedalsOpen = new SimpleBooleanProperty(false);
   /** Amp channel: 0 clean, 1 crunch, 2 metal. */
   private final IntegerProperty ampModel = new SimpleIntegerProperty(0);
+  /** Sustain knob 0..1; 0.5 is neutral. Maps to a 0.25x..4x ring multiplier. */
+  private final DoubleProperty sustain = new SimpleDoubleProperty(0.5);
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
@@ -118,6 +120,7 @@ public final class AppContext {
       p.addListener((o, ov, nv) -> applyFx());
     }
     ampModel.addListener((o, ov, nv) -> applyFx());
+    sustain.addListener((o, ov, nv) -> applySustain());
     for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
         distDrive, distTone, distLevel, distEnabled,
         fuzzAmount, fuzzVolume, fuzzEnabled,
@@ -478,6 +481,22 @@ public final class AppContext {
     return ampModel;
   }
 
+  public DoubleProperty sustainProperty() {
+    return sustain;
+  }
+
+  /** Knob 0..1 -> ring multiplier 0.25x..4x, 0.5 = 1x (neutral). */
+  public static double sustainMultiplier(double knob) {
+    return Math.pow(4.0, (clamp(knob, 0, 1) - 0.5) * 2.0);
+  }
+
+  private void applySustain() {
+    if (!engineReady) {
+      return;
+    }
+    engine.setSustain((float) sustainMultiplier(sustain.get()));
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -564,6 +583,7 @@ public final class AppContext {
     state.put("spr.mix", Double.toString(sprMix.get()));
     state.put("ui.pedalsOpen", Boolean.toString(pedalsOpen.get()));
     state.put("ui.ampModel", Integer.toString(ampModel.get()));
+    state.put("ui.sustain", Double.toString(sustain.get()));
     return state;
   }
 
@@ -641,6 +661,7 @@ public final class AppContext {
     } catch (NumberFormatException e) {
       ampModel.set(0); // corrupt value falls back to the clean channel
     }
+    sustain.set(clamp(parse(state.getOrDefault("ui.sustain", "0.5")), 0, 1));
   }
 
   private static double parse(String value) {

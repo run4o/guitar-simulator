@@ -65,6 +65,18 @@ class PedalStateTest {
   }
 
   @Test
+  void sustainRoundTripsAndDefaultsNeutral() {
+    AppContext fresh = newContext();
+    assertEquals(0.5, fresh.sustainProperty().get(), 1e-9,
+            "the sustain knob defaults to neutral");
+    fresh.sustainProperty().set(0.9);
+    AppContext target = newContext();
+    target.loadPedalState(fresh.pedalState());
+    assertEquals(0.9, target.sustainProperty().get(), 1e-9,
+            "the sustain knob must ride the pedal state map");
+  }
+
+  @Test
   void pedalStateRoundTripsThroughTheProjectFile() throws Exception {
     AppContext source = newContext();
     source.pedalsOpenProperty().set(true);

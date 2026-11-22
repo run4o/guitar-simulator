@@ -62,6 +62,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setCabinetFn;
   private final MethodHandle setSpringFn;
   private final MethodHandle setAmpModelFn;
+  private final MethodHandle setSustainFn;
   private final MethodHandle getTunerHzFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
@@ -144,6 +145,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setAmpModelFn = linker.downcallHandle(symbols.find("guitar_engine_set_amp_model").orElseThrow(),
           FunctionDescriptor.ofVoid(C_INT));
+      setSustainFn = linker.downcallHandle(symbols.find("guitar_engine_set_sustain").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_FLOAT));
       getTunerHzFn = linker.downcallHandle(symbols.find("guitar_engine_get_tuner_hz").orElseThrow(),
           FunctionDescriptor.of(C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
@@ -679,6 +682,18 @@ public final class GuitarEngine implements AutoCloseable {
       setAmpModelFn.invokeExact(model);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_amp_model failed", t);
+    }
+  }
+
+  /**
+   * String sustain: multiplier on the string model's ring time
+   * (0.25..4, 1.0 = nominal). Mutes and palm mutes ignore it.
+   */
+  public void setSustain(float multiplier) {
+    try {
+      setSustainFn.invokeExact(multiplier);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_sustain failed", t);
     }
   }
 

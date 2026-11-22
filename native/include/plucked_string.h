@@ -51,7 +51,7 @@ public:
         delay_ = nominal_delay_;
         target_delay_ = nominal_delay_;
         slew_per_sample_ = 0.0f;
-        set_envelope(palm_mute ? kPalmMuteT60 : model_t60_,
+        set_envelope(palm_mute ? kPalmMuteT60 : model_t60_ * sustain_mult_,
                      palm_mute ? kPalmMuteCutoff : model_cutoff_);
         excite(velocity);
     }
@@ -63,7 +63,7 @@ public:
         nominal_delay_ = clamp_delay(fs_ / f);
         slew_to(nominal_delay_,
                 slew_seconds > 0.0f ? slew_seconds : kLegatoSlewSeconds);
-        set_envelope(model_t60_, model_cutoff_);
+        set_envelope(model_t60_ * sustain_mult_, model_cutoff_);
     }
 
     /* Bend (also used for slides): pitch glides by `semitones` relative to the
@@ -71,7 +71,7 @@ public:
     void bend(float semitones) {
         nominal_delay_ = clamp_delay(nominal_delay_ * std::pow(2.0f, -semitones / 12.0f));
         slew_to(nominal_delay_, kBendSlewSeconds);
-        set_envelope(model_t60_, model_cutoff_);
+        set_envelope(model_t60_ * sustain_mult_, model_cutoff_);
     }
 
     /* Natural/artificial harmonic: the node at `node_fret` sounds the
@@ -132,6 +132,12 @@ public:
                 break;
         }
         set_envelope(model_t60_, model_cutoff_);
+    }
+
+    /** Sustain multiplier (0.25..4) applied to the model's ring time —
+     * knob-driven, defaults to 1.0 (nominal). Mutes/palm mutes ignore it. */
+    void set_sustain_multiplier(float mult) {
+        sustain_mult_ = std::clamp(mult, 0.25f, 4.0f);
     }
 
     float render_sample() {
@@ -292,6 +298,7 @@ private:
     float open_frequency_;
     int model_ = 0;
     float model_t60_ = kNormalT60;
+    float sustain_mult_ = 1.0f;
     float model_cutoff_ = kNormalCutoff;
     float excite_smooth_ = kExciteSmooth;
     float pickup_frac_ = -1.0f;

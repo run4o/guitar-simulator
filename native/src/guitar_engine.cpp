@@ -103,6 +103,7 @@ struct FxParams {
 };
 FxParams g_fx;
 std::atomic<int> g_pickup_model{0}; // guitar model for the pickup stage (both paths)
+std::atomic<float> g_sustain_mult{1.0f}; // string ring-out multiplier (both paths)
 
 /* Pedalboard parameters (one slot per pedal, added as pedals land). */
 struct PedalParams {
@@ -479,6 +480,14 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
         s.pickup_r.setModel(pickup_model);
         pickup_cached = pickup_model;
     }
+    static thread_local float sustain_cached = -1.0f;
+    const float sustain_mult = g_sustain_mult.load(std::memory_order_relaxed);
+    if (sustain_mult != sustain_cached) {
+        for (int i = 0; i < kStringCount; ++i) {
+            s.strings[i].set_sustain_multiplier(sustain_mult);
+        }
+        sustain_cached = sustain_mult;
+    }
     g_tuner_hz.store(s.pedals_l.tunerHz(), std::memory_order_relaxed);
 
     for (ma_uint32 i = 0; i < frames; ++i) {
@@ -820,6 +829,12 @@ GTE_EXPORT void guitar_engine_set_amp_model(int model) {
     g_fx.amp_model.store(std::clamp(model, 0, 2), std::memory_order_relaxed);
 }
 
+/* String sustain: multiplier on the string model's ring time (0.25..4,
+ * 1.0 = nominal). Applies to plucks/legato/bends, not mutes. */
+GTE_EXPORT void guitar_engine_set_sustain(float multiplier) {
+    g_sustain_mult.store(std::clamp(multiplier, 0.25f, 4.0f), std::memory_order_relaxed);
+}
+
 GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
                                                      float duration_seconds,
                                                      const GteRenderCommand* commands,
@@ -869,6 +884,11 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
     gte::PickupStage pickup; // hot instrument input, before the pedalboard
     pickup.prepare(fs);
     pickup.setModel(g_pickup_model.load(std::memory_order_relaxed));
+    const float sustain_mult = std::clamp(g_sustain_mult.load(std::memory_order_relaxed),
+                                          0.25f, 4.0f);
+    for (int i = 0; i < kStringCount; ++i) {
+        strings[i].set_sustain_multiplier(sustain_mult);
+    }
 
     const int64_t total_samples = static_cast<int64_t>(duration_seconds * fs);
     size_t next_command = 0;

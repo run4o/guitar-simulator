@@ -22,7 +22,7 @@ class AuditionRenderTest {
   }
 
   private void render(String name, int ampModel, int guitarModel, float drive,
-                      boolean cabinet, boolean gate) throws Exception {
+                      boolean cabinet, boolean gate, float sustain) throws Exception {
     List<RenderCommand> commands = new ArrayList<>();
     commands.add(new RenderCommand(0f, GuitarEngine.EVENT_SET_MODEL, -1, guitarModel, 0f, 0f));
     chug(commands);
@@ -33,6 +33,7 @@ class AuditionRenderTest {
       engine.setFx(drive, 0.8f, 0f, 1f);
       engine.setCabinet(cabinet, 1.0f);
       engine.setGate(gate, 0.25f, 0.3f);
+      engine.setSustain(sustain);
       org.junit.jupiter.api.Assertions.assertTrue(engine.renderSequenceToWav(wav, 2.0f, commands));
     }
     System.out.println("[audition] " + wav);
@@ -40,11 +41,13 @@ class AuditionRenderTest {
 
   @Test
   void renderAuditions() throws Exception {
-    render("audition-0-dry-acoustic", 0, 0, 0f, false, false);
-    render("audition-1-clean-acoustic", 0, 0, 1f, false, false);
-    render("audition-2-crunch-hb", 1, 2, 0.5f, false, false);
-    render("audition-3-metal-hb-d0", 2, 2, 0f, false, false);
-    render("audition-4-metal-hb-d1", 2, 2, 1f, false, false);
-    render("audition-5-metal-cab-gate", 2, 2, 0.7f, true, true);
+    render("audition-0-dry-acoustic", 0, 0, 0f, false, false, 1f);
+    render("audition-1-clean-acoustic", 0, 0, 1f, false, false, 1f);
+    render("audition-2-crunch-hb", 1, 2, 0.5f, false, false, 1f);
+    render("audition-3-metal-hb-d0", 2, 2, 0f, false, false, 1f);
+    render("audition-4-metal-hb-d1", 2, 2, 1f, false, false, 1f);
+    render("audition-5-metal-cab-gate", 2, 2, 0.7f, true, true, 1f);
+    render("audition-6-clean-sustain4x", 0, 0, 0.6f, false, false, 4f);
+    render("audition-7-metal-sustain4x", 2, 2, 0.7f, true, true, 4f);
   }
 }
