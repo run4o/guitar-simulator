@@ -115,10 +115,10 @@ public:
                 pickup_frac_ = 0.14f;
                 pickup_frac2_ = -1.0f; // single pickup
                 break;
-            case 2: // humbucker: fatter, softer, slightly shorter
+            case 2: // humbucker: fatter, hotter pick, slightly shorter
                 model_t60_ = 7.0f;
-                model_cutoff_ = 7500.0f;
-                excite_smooth_ = 0.12f;
+                model_cutoff_ = 8500.0f;
+                excite_smooth_ = 0.2f;
                 pickup_frac_ = 0.10f;
                 pickup_frac2_ = 0.15f; // second coil 5% along the string
                 break;

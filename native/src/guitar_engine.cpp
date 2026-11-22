@@ -102,6 +102,7 @@ struct FxParams {
     std::atomic<int> amp_model{0}; // 0 clean, 1 crunch, 2 metal
 };
 FxParams g_fx;
+std::atomic<int> g_pickup_model{0}; // guitar model for the pickup stage (both paths)
 
 /* Pedalboard parameters (one slot per pedal, added as pedals land). */
 struct PedalParams {
@@ -210,6 +211,8 @@ struct EngineState {
     gte::FxDsp fx_r;
     gte::PedalChain pedals_l; // pedalboard runs before the amp section
     gte::PedalChain pedals_r;
+    gte::PickupStage pickup_l; // hot instrument input, before the pedalboard
+    gte::PickupStage pickup_r;
 
     ma_device device{};
     bool device_ready = false;
@@ -230,6 +233,7 @@ void apply_command(gte::PluckedString* strings, float open_frequencies[], int ty
         for (int i = 0; i < kStringCount; ++i) {
             strings[i].set_guitar_model(fret);
         }
+        g_pickup_model.store(fret, std::memory_order_relaxed);
         return;
     }
     if (!valid_string(string_index)) return;
@@ -468,6 +472,13 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
     static thread_local float pedal_cached_r[65] = {             -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f , -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
     sync_pedal_params(s.pedals_l, pedal_cached_l);
     sync_pedal_params(s.pedals_r, pedal_cached_r);
+    static thread_local int pickup_cached = -1;
+    const int pickup_model = g_pickup_model.load(std::memory_order_relaxed);
+    if (pickup_model != pickup_cached) {
+        s.pickup_l.setModel(pickup_model);
+        s.pickup_r.setModel(pickup_model);
+        pickup_cached = pickup_model;
+    }
     g_tuner_hz.store(s.pedals_l.tunerHz(), std::memory_order_relaxed);
 
     for (ma_uint32 i = 0; i < frames; ++i) {
@@ -486,8 +497,8 @@ void data_callback(ma_device* /*device*/, void* output, const void* /*input*/, m
             leftSum += v * kPanLeft[k];
             rightSum += v * kPanRight[k];
         }
-        const float outL = s.fx_l.process(s.pedals_l.process(leftSum * 0.45f));
-        const float outR = s.fx_r.process(s.pedals_r.process(rightSum * 0.45f));
+        const float outL = s.fx_l.process(s.pedals_l.process(s.pickup_l.process(leftSum * 0.45f)));
+        const float outR = s.fx_r.process(s.pedals_r.process(s.pickup_r.process(rightSum * 0.45f)));
         out[2 * i]     = outL;
         out[2 * i + 1] = outR;
         update_level(std::max(std::fabs(outL), std::fabs(outR)));
@@ -522,6 +533,10 @@ GTE_EXPORT bool guitar_engine_init(int sample_rate, int buffer_frames) {
     }
     g.fx_l.prepare(g.sample_rate, 0);
     g.fx_r.prepare(g.sample_rate, 1); // Freeverb 23-sample spread -> decorrelated stereo tail
+    g.pickup_l.prepare(g.sample_rate);
+    g.pickup_r.prepare(g.sample_rate);
+    g.pickup_l.setModel(g_pickup_model.load(std::memory_order_relaxed));
+    g.pickup_r.setModel(g_pickup_model.load(std::memory_order_relaxed));
     g.queue.clear();
     g.frames_rendered.store(0, std::memory_order_relaxed);
     g.initialized = true;
@@ -851,6 +866,9 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
         float cached[65] = {             -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f , -1.0f, -1.0f, -1.0f, -1.0f, -1.0f , -1.0f , -1.0f, -1.0f , -1.0f, -1.0f, -1.0f };
         sync_pedal_params(pedals, cached);
     }
+    gte::PickupStage pickup; // hot instrument input, before the pedalboard
+    pickup.prepare(fs);
+    pickup.setModel(g_pickup_model.load(std::memory_order_relaxed));
 
     const int64_t total_samples = static_cast<int64_t>(duration_seconds * fs);
     size_t next_command = 0;
@@ -859,12 +877,15 @@ GTE_EXPORT bool guitar_engine_render_sequence_to_wav(const char* path_utf8,
         while (next_command < sorted.size() && sorted[next_command].time_offset <= t) {
             const GteRenderCommand& c = sorted[next_command++];
             apply_command(strings, offline_tunings, c.type, c.string_index, c.fret, c.a, c.b);
+            if (c.type == GTE_EVENT_SET_MODEL) {
+                pickup.setModel(g_pickup_model.load(std::memory_order_relaxed));
+            }
         }
         float sum = 0.0f;
         for (int i = 0; i < kStringCount; ++i) {
             sum += strings[i].render_sample() * offline_gains[i];
         }
-        const float out = fx.process(pedals.process(sum * 0.45f));
+        const float out = fx.process(pedals.process(pickup.process(sum * 0.45f)));
         update_level(out);
         wav.write(out);
     }

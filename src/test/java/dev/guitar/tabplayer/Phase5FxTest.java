@@ -41,13 +41,20 @@ class Phase5FxTest {
 
     /** Bright pluck (B4, string 5 fret 7) through one amp channel. */
     private WavAnalysis.Wav renderChannel(int model, float drive, String tag) throws Exception {
+        return renderChannel(model, 0, drive, tag);
+    }
+
+    /** Same, with a guitar model selection (SET_MODEL lands before the pluck). */
+    private WavAnalysis.Wav renderChannel(int ampModel, int guitarModel, float drive,
+                                          String tag) throws Exception {
         List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_SET_MODEL, -1, guitarModel, 0f, 0f),
                 new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
                 new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
         Path wav = tempDir.resolve("amp-" + tag + "-" + System.nanoTime() + ".wav");
         try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
             assertTrue(engine.init((int) SR, 256));
-            engine.setAmpModel(model);
+            engine.setAmpModel(ampModel);
             engine.setFx(drive, 1f, 0f, 1f);
             assertTrue(engine.renderSequenceToWav(wav, 0.6f, commands));
         }
@@ -226,5 +233,20 @@ class Phase5FxTest {
                 fail("metal render must be deterministic at sample " + i);
             }
         }
+    }
+
+    @Test
+    void humbuckerIntoMetalIsTheHotPath() throws Exception {
+        // the pickup stage must give the amp more to bite than the flat
+        // acoustic signal does: more harmonic fizz, and a strong body
+        WavAnalysis.Wav acoustic = renderChannel(2, 0, 1f, "metal-acoustic");
+        WavAnalysis.Wav humbucker = renderChannel(2, 2, 1f, "metal-hb");
+        assertTrue(fizz(humbucker) > fizz(acoustic) * 1.2f,
+                "humbucker into metal must add fizz, " + fizz(humbucker)
+                        + " vs acoustic " + fizz(acoustic));
+        float rmsRatio = WavAnalysis.rms(humbucker, 0.05, 0.25)
+                / Math.max(WavAnalysis.rms(acoustic, 0.05, 0.25), 1e-9f);
+        assertTrue(rmsRatio > 0.7f && rmsRatio < 1.5f,
+                "the pickup stage must not level-shift the amp, ratio=" + rmsRatio);
     }
 }

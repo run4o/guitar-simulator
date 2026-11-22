@@ -98,13 +98,10 @@ public:
         const float os_fs = 4.0f * fs_;
         pre_cut_coef_ = 1.0f - std::exp(-6.2831853f * 100.0f / os_fs);
         dc_coef_ = 1.0f - std::exp(-6.2831853f * 12.0f / os_fs);
-        if (model_ == 2) { // METAL: deep cascade, scooped, tight. A second
-            // square-ifying pass makes the saturated wave harder-edged —
-            // the deep tanh alone falls off too fast for the fizz the
-            // voicing needs.
+        if (model_ == 2) { // METAL: deep cascade, scooped, tight
             s1_gain_ = 4.0f + drive_ * 2.0f;
             clip_gain_ = 30.0f + drive_ * 60.0f;
-            makeup_ = 1.0f;
+            makeup_ = 1.3f;
             asym_ = 0.12f;
             gate_threshold_ = 0.0006f;
         } else if (model_ == 1) { // CRUNCH: same structure, milder voicing
@@ -120,17 +117,17 @@ public:
         // post-EQ biquads: RBJ peaking mid scoop + high-shelf presence.
         // The scoop is shared; the presence boost is the voicing's fang —
         // metal leans on it hard, crunch barely.
-        float scoopDb = -6.0f;
+        float scoopDb = -4.0f;
         float presenceDb = 1.5f;
         if (model_ == 2) {
-            scoopDb = -5.0f;
+            scoopDb = -4.0f;
             presenceDb = 7.0f;
         } else if (model_ == 1) {
             presenceDb = 1.5f;
         }
         {
             const float w0 = 6.2831853f * 500.0f / fs_;
-            const float alpha = std::sin(w0) / (2.0f * 0.9f);
+            const float alpha = std::sin(w0) / (2.0f * 0.8f);
             const float A = std::pow(10.0f, scoopDb / 40.0f);
             const float a0 = 1.0f + alpha / A;
             scoop_.assign({
@@ -313,6 +310,92 @@ private:
     float wet_gain_ = 0.0f;
     std::vector<Comb> comb_;
     std::vector<Allpass> allpass_;
+};
+
+/*
+ * Pickup stage: the hot instrument output a real amp expects to see.
+ * Sits before the pedalboard — soft saturation plus a resonant presence
+ * peak and a top roll-off, per guitar model. Acoustic stays transparent
+ * (clean tones keep their character); single coil runs mild, humbucker
+ * runs hot and dark, feeding the amp the harmonic-rich DI it can bite.
+ */
+class PickupStage {
+public:
+    void prepare(float sample_rate) {
+        fs_ = sample_rate;
+        lp1_ = lp2_ = 0.0f;
+        pk_x1_ = pk_x2_ = pk_y1_ = pk_y2_ = 0.0f;
+        setModel(model_);
+    }
+
+    void setModel(int model) {
+        model_ = std::clamp(model, 0, 2);
+        // resonant presence peak + top roll-off + soft saturation
+        if (model_ == 2) { // humbucker: hot, dark, compressed
+            drive_ = 2.5f;
+            makeup_ = 0.72f;
+            peak_hz_ = 700.0f;
+            peak_q_ = 1.0f;
+            peak_db_ = 2.0f;
+            lp_hz_ = 7500.0f;
+        } else if (model_ == 1) { // single coil: milder, brighter
+            drive_ = 1.5f;
+            makeup_ = 0.85f;
+            peak_hz_ = 1600.0f;
+            peak_q_ = 1.2f;
+            peak_db_ = 2.5f;
+            lp_hz_ = 9500.0f;
+        } else { // acoustic: transparent
+            drive_ = 1.0f;
+            makeup_ = 1.0f;
+        }
+        recompute();
+    }
+
+    float process(float in) {
+        if (model_ == 0) {
+            return in;
+        }
+        float x = in;
+        // RBJ peaking: the pickup's resonant hump
+        const float y1 = pk_[0] * x + pk_[1] * pk_x1_ + pk_[2] * pk_x2_
+            - pk_[3] * pk_y1_ - pk_[4] * pk_y2_;
+        pk_x2_ = pk_x1_; pk_x1_ = x; pk_y2_ = pk_y1_; pk_y1_ = y1;
+        // one-pole top roll-off (two for a gentler slope)
+        lp1_ += lp_coef_ * (y1 - lp1_);
+        lp2_ += lp_coef_ * (lp1_ - lp2_);
+        // soft saturation: the hot pickup's compression
+        return std::tanh(drive_ * lp2_) * makeup_;
+    }
+
+private:
+    void recompute() {
+        const float w0 = 6.2831853f * peak_hz_ / fs_;
+        const float alpha = std::sin(w0) / (2.0f * peak_q_);
+        const float A = std::pow(10.0f, peak_db_ / 40.0f);
+        const float a0 = 1.0f + alpha / A;
+        pk_.assign({
+            (1.0f + alpha * A) / a0,
+            -2.0f * std::cos(w0) / a0,
+            (1.0f - alpha * A) / a0,
+            -2.0f * std::cos(w0) / a0,
+            (1.0f - alpha / A) / a0});
+        lp_coef_ = 1.0f - std::exp(-6.2831853f * lp_hz_ / fs_);
+    }
+
+    float fs_ = 44100.0f;
+    int model_ = 0;
+    float drive_ = 1.0f;
+    float makeup_ = 1.0f;
+    float peak_hz_ = 700.0f;
+    float peak_q_ = 1.0f;
+    float peak_db_ = 0.0f;
+    float lp_hz_ = 7500.0f;
+    float lp_coef_ = 0.5f;
+    float lp1_ = 0.0f;
+    float lp2_ = 0.0f;
+    float pk_x1_ = 0.0f, pk_x2_ = 0.0f, pk_y1_ = 0.0f, pk_y2_ = 0.0f;
+    std::vector<float> pk_;
 };
 
 } // namespace gte
