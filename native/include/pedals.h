@@ -1028,6 +1028,91 @@ private:
 };
 
 /*
+ * Spring: the amp's got a smooth hall reverb knob — this is the other
+ * kind. Three parallel feedback combs at incommensurate delays ring
+ * against each other like a real reverb spring pan ("boing"), fed
+ * through a band-limited, lightly driven path (springs neither hear
+ * sub-bass nor reproduce highs, and they saturate). DWELL sets the
+ * feedback (ring decay), MIX the wet blend.
+ */
+class SpringPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        hp_state_ = 0.0f;
+        in_lp_state_ = 0.0f;
+        const int ap_size = static_cast<int>(sample_rate * kAllpassMs / 1000.0f) + 4;
+        allpass_.assign(ap_size, 0.0f);
+        allpass_write_ = 0;
+        for (int i = 0; i < 3; ++i) {
+            lp_states_[i] = 0.0f;
+            const int size = static_cast<int>(sample_rate * kDelayMs[i] / 1000.0f) + 4;
+            buffers_[i].assign(size, 0.0f);
+            writes_[i] = 0;
+        }
+        setParams(dwell_, mix_);
+    }
+
+    void setParams(float dwell, float mix) {
+        dwell_ = std::clamp(dwell, 0.0f, 1.0f);
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+    }
+
+    float process(float in) override {
+        // input conditioner: HP 150 Hz, LP 4 kHz, light spring drive
+        const float hp_coef = 1.0f - std::exp(-6.2831853f * 150.0f / fs_);
+        hp_state_ += hp_coef * (in - hp_state_);
+        const float hp = in - hp_state_;
+        const float in_lp_coef = 1.0f - std::exp(-6.2831853f * 4000.0f / fs_);
+        in_lp_state_ += in_lp_coef * (hp - in_lp_state_);
+        float driven = 0.8f * std::tanh(in_lp_state_ * 1.6f);
+
+        // series allpass: the dispersion that makes a spring "boing"
+        {
+            const int size = static_cast<int>(allpass_.size());
+            const float delayed = allpass_[allpass_write_];
+            allpass_[allpass_write_] = driven + kAllpassG * delayed;
+            allpass_write_ = allpass_write_ + 1 == size ? 0 : allpass_write_ + 1;
+            driven = -kAllpassG * driven + delayed;
+        }
+
+        float wet = 0.0f;
+        const float feedback = 0.35f + dwell_ * 0.45f; // 0.35..0.80
+        const float fb_lp_coef = 1.0f - std::exp(-6.2831853f * 3500.0f / fs_);
+        for (int i = 0; i < 3; ++i) {
+            const int size = static_cast<int>(buffers_[i].size());
+            int read = writes_[i] - size + 3;
+            if (read < 0) {
+                read += size;
+            }
+            const float delayed = buffers_[i][read];
+            lp_states_[i] += fb_lp_coef * (delayed - lp_states_[i]);
+            buffers_[i][writes_[i]] = driven + lp_states_[i] * feedback;
+            writes_[i] = writes_[i] + 1 == size ? 0 : writes_[i] + 1;
+            wet += delayed;
+        }
+        wet *= (1.0f / 3.0f);
+        wet += 0.3f * driven; // the pan's direct pick-up keeps the body glued
+        return in + (wet - in) * mix_;
+    }
+
+private:
+    static constexpr float kDelayMs[3] = { 6.3f, 9.1f, 13.3f };
+    static constexpr float kAllpassMs = 3.4f;
+    static constexpr float kAllpassG = 0.5f;
+    float fs_ = 44100.0f;
+    float dwell_ = 0.5f;
+    float mix_ = 0.5f;
+    float hp_state_ = 0.0f;
+    float in_lp_state_ = 0.0f;
+    float lp_states_[3] = { 0.0f, 0.0f, 0.0f };
+    int writes_[3] = { 0, 0, 0 };
+    int allpass_write_ = 0;
+    std::vector<float> buffers_[3];
+    std::vector<float> allpass_;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -1051,6 +1136,10 @@ public:
         gate_.prepare(fs_);
         octave_.prepare(fs_);
         looper_.prepare(fs_);
+        volume_.prepare(fs_);
+        tuner_.prepare(fs_);
+        cabinet_.prepare(fs_);
+        spring_.prepare(fs_);
     }
 
     void setBoost(bool enabled, float gain_db) {
@@ -1147,6 +1236,11 @@ public:
         cabinet_.setParams(mix);
     }
 
+    void setSpring(bool enabled, float dwell, float mix) {
+        spring_.enabled = enabled;
+        spring_.setParams(dwell, mix);
+    }
+
     float tunerHz() const { return tuner_.hz(); }
 
     float process(float in) {
@@ -1207,6 +1301,9 @@ public:
         if (cabinet_.enabled) {
             in = cabinet_.process(in);
         }
+        if (spring_.enabled) {
+            in = spring_.process(in);
+        }
         return in;
     }
 
@@ -1231,6 +1328,7 @@ private:
     VolumePedal volume_;
     TunerPedal tuner_;
     CabinetPedal cabinet_;
+    SpringPedal spring_;
 };
 
 } // namespace gte

@@ -60,6 +60,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setVolumeFn;
   private final MethodHandle setTunerFn;
   private final MethodHandle setCabinetFn;
+  private final MethodHandle setSpringFn;
   private final MethodHandle getTunerHzFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
@@ -138,6 +139,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL));
       setCabinetFn = linker.downcallHandle(symbols.find("guitar_engine_set_cabinet").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
+      setSpringFn = linker.downcallHandle(symbols.find("guitar_engine_set_spring").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       getTunerHzFn = linker.downcallHandle(symbols.find("guitar_engine_get_tuner_hz").orElseThrow(),
           FunctionDescriptor.of(C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
@@ -648,6 +651,19 @@ public final class GuitarEngine implements AutoCloseable {
       setCabinetFn.invokeExact(enabled, mix);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_cabinet failed", t);
+    }
+  }
+
+  /**
+   * Spring reverb pedal: three ringing combs with a band-limited, lightly
+   * driven input path (dwell = ring decay 0..1, mix = wet blend 0..1),
+   * last in the chain.
+   */
+  public void setSpring(boolean enabled, float dwell, float mix) {
+    try {
+      setSpringFn.invokeExact(enabled, dwell, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_spring failed", t);
     }
   }
 

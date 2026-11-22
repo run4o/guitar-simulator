@@ -254,6 +254,17 @@ public class PedalPanelController {
     cabinet.enabledProperty().bindBidirectional(ctx.cabEnabledProperty());
     cabMix.valueProperty().bindBidirectional(ctx.cabMixProperty());
     pedalRow.getChildren().add(cabinet);
+
+    // SPRING: band-limited ringing combs (the "boing" reverb)
+    Knob sprDwell = new Knob(0, 1, 0.5, 44);
+    Knob sprMix = new Knob(0, 1, 0.5, 44);
+    PedalBox spring = new PedalBox("SPRING");
+    spring.addKnob(sprDwell, "DWELL");
+    spring.addKnob(sprMix, "MIX");
+    spring.enabledProperty().bindBidirectional(ctx.sprEnabledProperty());
+    sprDwell.valueProperty().bindBidirectional(ctx.sprDwellProperty());
+    sprMix.valueProperty().bindBidirectional(ctx.sprMixProperty());
+    pedalRow.getChildren().add(spring);
   }
 
   /**

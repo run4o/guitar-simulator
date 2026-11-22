@@ -1198,4 +1198,78 @@ class Phase6PedalTest {
                 "more SIM must sit below half SIM (attenuative blend), "
                         + rmsFull + " vs " + rmsHalf);
     }
+
+    /* ---- spring ------------------------------------------------------------- */
+
+    /**
+     * Fixture: a pluck muted at 0.3 s — whatever sounds after the string
+     * stops is the spring's tail.
+     */
+    private WavAnalysis.Wav renderSpring(boolean enabled, float dwell, float mix)
+            throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("spring-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setSpring(enabled, dwell, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedSpringLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav clean = renderSpring(false, 0.9f, 1.0f);
+        WavAnalysis.Wav ref = renderSpring(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(clean, 0.05, 0.25) / WavAnalysis.rms(ref, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed spring must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void springMixZeroIsDry() throws Exception {
+        // out = in + (wet - in)*mix: mix 0 is an exact passthrough
+        WavAnalysis.Wav dry = renderSpring(true, 0.9f, 0.0f);
+        WavAnalysis.Wav ref = renderSpring(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(dry, 0.05, 0.25) / WavAnalysis.rms(ref, 0.05, 0.25);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "mix 0 spring must pass the signal untouched, ratio=" + ratio);
+    }
+
+    @Test
+    void engagedSpringAddsATail() throws Exception {
+        // after the mute the string is silent; only the spring keeps
+        // ringing (window starts right at the mute so the ring is alive)
+        WavAnalysis.Wav clean = renderSpring(false, 0f, 0f);
+        WavAnalysis.Wav wet = renderSpring(true, 0.95f, 0.5f);
+        float tailClean = WavAnalysis.rms(clean, 0.31, 0.45);
+        float tailWet = WavAnalysis.rms(wet, 0.31, 0.45);
+        assertTrue(tailWet > 0.001f && tailWet > tailClean * 1.5f,
+                "the spring must ring on after the mute, tail " + tailWet
+                        + " vs clean " + tailClean);
+    }
+
+    @Test
+    void dwellExtendsTheTail() throws Exception {
+        // more feedback = the ring-out lasts longer after the mute
+        WavAnalysis.Wav short_ = renderSpring(true, 0.1f, 0.5f);
+        WavAnalysis.Wav long_ = renderSpring(true, 0.95f, 0.5f);
+        float tailShort = WavAnalysis.rms(short_, 0.31, 0.45);
+        float tailLong = WavAnalysis.rms(long_, 0.31, 0.45);
+        assertTrue(tailLong > tailShort * 1.5f,
+                "more dwell must extend the tail, " + tailLong + " vs " + tailShort);
+    }
+
+    @Test
+    void engagedSpringKeepsTheBodySane() throws Exception {
+        // wet blend must not blow up the dry body (regeneration guard)
+        WavAnalysis.Wav clean = renderSpring(false, 0f, 0f);
+        WavAnalysis.Wav wet = renderSpring(true, 1.0f, 0.5f);
+        float ratio = WavAnalysis.rms(wet, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.6f && ratio < 1.6f,
+                "full dwell must stay sane on the body, ratio=" + ratio);
+    }
 }

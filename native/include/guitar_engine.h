@@ -107,6 +107,7 @@ GTE_EXPORT void      guitar_engine_set_octave(bool enabled, float mode, float mi
 GTE_EXPORT void      guitar_engine_set_volume(bool enabled, float level);
 GTE_EXPORT void      guitar_engine_set_tuner(bool enabled);
 GTE_EXPORT void      guitar_engine_set_cabinet(bool enabled, float mix);
+GTE_EXPORT void      guitar_engine_set_spring(bool enabled, float dwell, float mix);
 
 /* Detected pitch of the tuner pedal in Hz (0 = silence/no reading yet). */
 GTE_EXPORT float     guitar_engine_get_tuner_hz(void);
