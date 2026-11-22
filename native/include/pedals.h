@@ -1126,7 +1126,7 @@ private:
         sections_[1].setPeaking(fs_, 120.0f, 1.1f, 3.5f);  // low-mid thump
         sections_[2].setPeaking(fs_, 450.0f, 0.9f, -4.0f); // mid scoop
         sections_[3].setPeaking(fs_, 1400.0f, 1.0f, 2.5f); // upper-mid edge
-        sections_[4].setPeaking(fs_, 3200.0f, 1.5f, 2.0f); // presence spike
+        sections_[4].setPeaking(fs_, 3200.0f, 0.8f, 1.5f); // presence spike
         sections_[5].setLowPass(fs_, 5200.0f, 0.8f);  // cone roll-off x2
         sections_[6].setLowPass(fs_, 5200.0f, 0.8f);
         ultra_coef_ = 1.0f - std::exp(-6.2831853f * 9000.0f / fs_);

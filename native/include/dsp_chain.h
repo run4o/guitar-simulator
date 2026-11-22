@@ -98,6 +98,7 @@ public:
         // Gains assume the small signal the strings deliver (~0.1 peak).
         const float os_fs = 4.0f * fs_;
         pre_cut_coef_ = 1.0f - std::exp(-6.2831853f * 100.0f / os_fs);
+        hp2_coef_ = 1.0f - std::exp(-6.2831853f * 30.0f / os_fs);
         dc_coef_ = 1.0f - std::exp(-6.2831853f * 12.0f / os_fs);
         if (model_ == 2) { // METAL: deep cascade, scooped, tight
             s1_gain_ = 4.0f + drive_ * 2.0f;
@@ -105,14 +106,14 @@ public:
             makeup_ = 0.85f;
             asym_ = 0.12f;
             sag_depth_ = 0.22f;
-            gate_threshold_ = 0.0006f;
+            gate_threshold_ = 0.0004f;
         } else if (model_ == 1) { // CRUNCH: same structure, milder voicing
             s1_gain_ = 2.0f + drive_ * 1.0f;
             clip_gain_ = 8.0f + drive_ * 25.0f;
             makeup_ = 1.0f;
             asym_ = 0.05f;
             sag_depth_ = 0.08f;
-            gate_threshold_ = 0.0004f;
+            gate_threshold_ = 0.0003f;
         } else { // CLEAN: the original single-tanh path
             clip_gain_ = 1.0f + drive_ * 24.0f;
             makeup_ = 0.9f + drive_ * 0.7f;
@@ -167,12 +168,14 @@ public:
     // touch of asymmetric diode bite (DC-blocked). Runs at 4x rate. The
     // bias point drifts with playing dynamics (tube sag): loud passages
     // shift the clipper's operating point, compressing and blooming.
+    // One tight low-cut before the gain; the inter-stage cap sits at 30 Hz
+    // (DC-block duty only) so cascading never guts the low end.
     float cascade(float x) {
         float s = x - pre_state_;
         pre_state_ += pre_cut_coef_ * (x - pre_state_);
         s = std::tanh(s1_gain_ * s);
         s = s - hp2_state_;
-        hp2_state_ += pre_cut_coef_ * (s - hp2_state_);
+        hp2_state_ += hp2_coef_ * (s - hp2_state_);
         float c = std::tanh(clip_gain_ * (s + sag_bias_));
         c += asym_ * c * c;
         c -= dc_state_;
@@ -217,11 +220,12 @@ public:
             // post-EQ at the native rate
             y = biquad(scoop_.data(), scoop_x1_, scoop_x2_, scoop_y1_, scoop_y2_, y);
             y = biquad(presence_.data(), pres_x1_, pres_x2_, pres_y1_, pres_y2_, y);
-            // light internal gate: kills the mush floor, never the note
+            // light internal gate: kills the mush floor, breathes out on
+            // the decay instead of snapping
             const float a = std::fabs(y);
             const float coef = a > gate_env_
                 ? 1.0f - std::exp(-1.0f / (0.001f * fs_))
-                : 1.0f - std::exp(-1.0f / (0.03f * fs_));
+                : 1.0f - std::exp(-1.0f / (0.100f * fs_));
             gate_env_ += coef * (a - gate_env_);
             if (gate_env_ < gate_threshold_) {
                 const float r = gate_env_ / gate_threshold_;
@@ -303,6 +307,7 @@ private:
     float sag_bias_ = 0.0f;
     float gate_threshold_ = 0.0f;
     float pre_cut_coef_ = 0.01f;
+    float hp2_coef_ = 0.01f;
     float dc_coef_ = 0.01f;
     float hp_coef_ = 0.05f;
     float hp_state_ = 0.0f;

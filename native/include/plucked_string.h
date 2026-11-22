@@ -138,7 +138,10 @@ public:
         disp_gd_ = 2.0f * (2.0f * disp_a_ / (1.0f - disp_a_ * disp_a_));
         // pick transient strength per model (a hot pickup spits more)
         pick_gain_ = model_ == 0 ? 0.15f : (model_ == 1 ? 0.3f : 0.65f);
-        click_decay_ = std::exp(-1.0f / (0.005f * fs_));
+        click_decay_ = std::exp(-1.0f / (0.003f * fs_));
+        // the click's band: ~2-6 kHz — a pick scrape, not a white-noise chirp
+        pick_bp_hp_coef_ = 1.0f - std::exp(-6.2831853f * 2000.0f / fs_);
+        pick_bp_lp_coef_ = 1.0f - std::exp(-6.2831853f * 6000.0f / fs_);
         set_envelope(model_t60_, model_cutoff_);
     }
 
@@ -202,11 +205,17 @@ public:
         buf_[write_idx_] = fb;
         write_idx_ = wrap(write_idx_ + 1);
 
-        // Pick transient: a fast-decaying one-shot click at the output —
+        // Pick transient: a fast-decaying band-passed click at the output —
         // the "spit" lives in the pickup/electronics, it never re-excites
         // the string loop, so measurement paths stay clean.
-        const float click = pick_env_ * noise() * 0.8f;
-        pick_env_ *= click_decay_;
+        {
+            const float n = noise();
+            pick_bp_hp_ += pick_bp_hp_coef_ * (n - pick_bp_hp_);
+            const float hp = n - pick_bp_hp_;
+            pick_bp_lp_ += pick_bp_lp_coef_ * (hp - pick_bp_lp_);
+            pick_click_ = pick_env_ * pick_bp_lp_ * 0.5f;
+            pick_env_ *= click_decay_;
+        }
 
         if (model_ != 0) {
             /* Magnetic pickup: comb filter on the loop output. The tap pair is
@@ -218,20 +227,20 @@ public:
                     static_cast<int>(pickup_frac_ * nominal_delay_), kBufferSamples / 3));
             const float x0 = buf_[wrap(write_idx_ - n)];
             const float xt = buf_[wrap(write_idx_ - n - tau)];
-            if (model_ == 1) {
-                return 0.5f * (x0 - xt) + click;
+        if (model_ == 1) {
+                return 0.5f * (x0 - xt) + pick_click_;
             }
             const int tau2 = std::max(tau + 2, std::min(
                     static_cast<int>(pickup_frac2_ * nominal_delay_), kBufferSamples / 3));
             const float xt2 = buf_[wrap(write_idx_ - n - tau2)];
-            return 0.25f * ((x0 - xt) + (x0 - xt2)) + click;
+            return 0.25f * ((x0 - xt) + (x0 - xt2)) + pick_click_;
         }
 
         // DC blocker: hp = x - x_prev + R*hp_prev
         float hp = fb - dc_prev_ + 0.995f * dc_state_;
         dc_prev_ = fb;
         dc_state_ = hp;
-        return hp + click;
+        return hp + pick_click_;
     }
 
 private:
@@ -333,6 +342,9 @@ private:
     float pick_gain_ = 0.4f; // pick-transient level (per model)
     float pick_env_ = 0.0f;  // one-shot output click envelope
     float click_decay_ = 0.99f;
+    float pick_click_ = 0.0f; // this sample's click value
+    float pick_bp_hp_ = 0.0f, pick_bp_lp_ = 0.0f;
+    float pick_bp_hp_coef_ = 0.3f, pick_bp_lp_coef_ = 0.6f;
     float model_cutoff_ = kNormalCutoff;
     float excite_smooth_ = kExciteSmooth;
     float pickup_frac_ = -1.0f;
