@@ -246,10 +246,10 @@ public:
 private:
     static constexpr int kBufferSamples = 2048; // power of two; supports tunings down to ~21 Hz
     static constexpr float kNormalT60 = 3.0f;
-    static constexpr float kPalmMuteT60 = 0.35f;
+    static constexpr float kPalmMuteT60 = 0.6f;
     static constexpr float kMuteT60 = 0.08f;
     static constexpr float kNormalCutoff = 5000.0f;
-    static constexpr float kPalmMuteCutoff = 1200.0f;
+    static constexpr float kPalmMuteCutoff = 2500.0f;
     static constexpr float kLegatoSlewSeconds = 0.008f;
     static constexpr float kBendSlewSeconds = 0.18f;
     static constexpr float kExciteSmooth = 0.4f; // acoustic pick burst low-pass
