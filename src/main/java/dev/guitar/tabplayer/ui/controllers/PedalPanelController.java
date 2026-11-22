@@ -246,6 +246,14 @@ public class PedalPanelController {
     tuner.enabledProperty().bindBidirectional(ctx.tunEnabledProperty());
     pedalRow.getChildren().add(tuner);
     startTunerPoll(tunerReadout);
+
+    // CABINET: fixed 4x12 speaker response blended over the dry signal
+    Knob cabMix = new Knob(0, 1, 1.0, 44);
+    PedalBox cabinet = new PedalBox("CABINET");
+    cabinet.addKnob(cabMix, "SIM");
+    cabinet.enabledProperty().bindBidirectional(ctx.cabEnabledProperty());
+    cabMix.valueProperty().bindBidirectional(ctx.cabMixProperty());
+    pedalRow.getChildren().add(cabinet);
   }
 
   /**

@@ -946,6 +946,88 @@ private:
 };
 
 /*
+ * Cabinet: a fixed guitar-cabinet response — high-pass at 70 Hz (kills
+ * the rumble a real 4x12 never reproduces), low-pass at 5 kHz (the
+ * speaker cone's natural roll-off), and a gentle dip around 400 Hz for
+ * the classic mid-scooped speaker tone. The SIM knob blends it in
+ * (0 = dry signal, 1 = fully cab'd), so it can double as a subtle
+ * "amp-in-the-room" tamer for the otherwise flat synth voice.
+ */
+class CabinetPedal : public Pedal {
+public:
+    void prepare(float sample_rate) override {
+        fs_ = sample_rate;
+        x1_hp_ = x2_hp_ = y1_hp_ = y2_hp_ = 0.0f;
+        x1_lp1_ = x2_lp1_ = y1_lp1_ = y2_lp1_ = 0.0f;
+        x1_lp2_ = x2_lp2_ = y1_lp2_ = y2_lp2_ = 0.0f;
+        x1_md_ = x2_md_ = y1_md_ = y2_md_ = 0.0f;
+    }
+
+    void setParams(float mix) {
+        mix_ = std::clamp(mix, 0.0f, 1.0f);
+    }
+
+    float process(float in) override {
+        // RBJ high-pass, fc = 70 Hz, Q = 0.707 (Butterworth)
+        const float whp = 6.2831853f * 70.0f / fs_;
+        const float cwhp = std::cos(whp);
+        const float ahp = std::sin(whp) / (2.0f * 0.70710678f);
+        const float hp_a0 = 1.0f + ahp;
+        const float hp_b0 = (1.0f + cwhp) / 2.0f / hp_a0;
+        const float hp_b1 = -(1.0f + cwhp) / hp_a0;
+        const float hp_b2 = hp_b0;
+        const float hp_a1 = -2.0f * cwhp / hp_a0;
+        const float hp_a2 = (1.0f - ahp) / hp_a0;
+        const float hp = hp_b0 * in + hp_b1 * x1_hp_ + hp_b2 * x2_hp_
+            - hp_a1 * y1_hp_ - hp_a2 * y2_hp_;
+        x2_hp_ = x1_hp_; x1_hp_ = in; y2_hp_ = y1_hp_; y1_hp_ = hp;
+
+        // RBJ peaking EQ, fc = 400 Hz, Q = 1.0, -4 dB dip
+        const float wmd = 6.2831853f * 400.0f / fs_;
+        const float cmd = std::cos(wmd);
+        const float amd = std::sin(wmd) / (2.0f * 1.0f);
+        const float A = std::pow(10.0f, -4.0f / 40.0f); // -4 dB
+        const float md_a0 = 1.0f + amd / A;
+        const float md_b0 = (1.0f + amd * A) / md_a0;
+        const float md_b1 = -2.0f * cmd / md_a0;
+        const float md_b2 = (1.0f - amd * A) / md_a0;
+        const float md_a1 = -2.0f * cmd / md_a0;
+        const float md_a2 = (1.0f - amd / A) / md_a0;
+        const float mid = md_b0 * hp + md_b1 * x1_md_ + md_b2 * x2_md_
+            - md_a1 * y1_md_ - md_a2 * y2_md_;
+        x2_md_ = x1_md_; x1_md_ = hp; y2_md_ = y1_md_; y1_md_ = mid;
+
+        // RBJ low-pass x2 (cascaded), fc = 5 kHz, Q = 0.707 — real cone
+        // roll-off is steep, and one Butterworth stage is too gentle
+        const float wlp = 6.2831853f * 5000.0f / fs_;
+        const float clp = std::cos(wlp);
+        const float alp = std::sin(wlp) / (2.0f * 0.70710678f);
+        const float lp_a0 = 1.0f + alp;
+        const float lp_b0 = (1.0f - clp) / 2.0f / lp_a0;
+        const float lp_b1 = (1.0f - clp) / lp_a0;
+        const float lp_b2 = lp_b0;
+        const float lp_a1 = -2.0f * clp / lp_a0;
+        const float lp_a2 = (1.0f - alp) / lp_a0;
+        const float lp1 = lp_b0 * mid + lp_b1 * x1_lp1_ + lp_b2 * x2_lp1_
+            - lp_a1 * y1_lp1_ - lp_a2 * y2_lp1_;
+        x2_lp1_ = x1_lp1_; x1_lp1_ = mid; y2_lp1_ = y1_lp1_; y1_lp1_ = lp1;
+        const float lp = lp_b0 * lp1 + lp_b1 * x1_lp2_ + lp_b2 * x2_lp2_
+            - lp_a1 * y1_lp2_ - lp_a2 * y2_lp2_;
+        x2_lp2_ = x1_lp2_; x1_lp2_ = lp1; y2_lp2_ = y1_lp2_; y1_lp2_ = lp;
+
+        return in + (lp - in) * mix_;
+    }
+
+private:
+    float fs_ = 44100.0f;
+    float mix_ = 1.0f;
+    float x1_hp_ = 0.0f, x2_hp_ = 0.0f, y1_hp_ = 0.0f, y2_hp_ = 0.0f;
+    float x1_lp1_ = 0.0f, x2_lp1_ = 0.0f, y1_lp1_ = 0.0f, y2_lp1_ = 0.0f;
+    float x1_lp2_ = 0.0f, x2_lp2_ = 0.0f, y1_lp2_ = 0.0f, y2_lp2_ = 0.0f;
+    float x1_md_ = 0.0f, x2_md_ = 0.0f, y1_md_ = 0.0f, y2_md_ = 0.0f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -1060,6 +1142,11 @@ public:
         tuner_.enabled = enabled;
     }
 
+    void setCabinet(bool enabled, float mix) {
+        cabinet_.enabled = enabled;
+        cabinet_.setParams(mix);
+    }
+
     float tunerHz() const { return tuner_.hz(); }
 
     float process(float in) {
@@ -1117,6 +1204,9 @@ public:
         if (tuner_.enabled) {
             in = tuner_.process(in);
         }
+        if (cabinet_.enabled) {
+            in = cabinet_.process(in);
+        }
         return in;
     }
 
@@ -1140,6 +1230,7 @@ private:
     LooperPedal looper_;
     VolumePedal volume_;
     TunerPedal tuner_;
+    CabinetPedal cabinet_;
 };
 
 } // namespace gte

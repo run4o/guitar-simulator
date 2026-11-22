@@ -59,6 +59,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setLooperFn;
   private final MethodHandle setVolumeFn;
   private final MethodHandle setTunerFn;
+  private final MethodHandle setCabinetFn;
   private final MethodHandle getTunerHzFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
@@ -135,6 +136,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
       setTunerFn = linker.downcallHandle(symbols.find("guitar_engine_set_tuner").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL));
+      setCabinetFn = linker.downcallHandle(symbols.find("guitar_engine_set_cabinet").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
       getTunerHzFn = linker.downcallHandle(symbols.find("guitar_engine_get_tuner_hz").orElseThrow(),
           FunctionDescriptor.of(C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
@@ -632,6 +635,19 @@ public final class GuitarEngine implements AutoCloseable {
       return (float) getTunerHzFn.invokeExact();
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_get_tuner_hz failed", t);
+    }
+  }
+
+  /**
+   * Cabinet pedal: a fixed 4x12 speaker response (HP 70 Hz, -4 dB dip at
+   * 400 Hz, LP 5 kHz) blended over the dry signal (mix 0..1), last in
+   * the chain.
+   */
+  public void setCabinet(boolean enabled, float mix) {
+    try {
+      setCabinetFn.invokeExact(enabled, mix);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_cabinet failed", t);
     }
   }
 

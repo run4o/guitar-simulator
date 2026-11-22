@@ -92,6 +92,8 @@ public final class AppContext {
   private final DoubleProperty volLevel = new SimpleDoubleProperty(1.0);
   private final BooleanProperty volEnabled = new SimpleBooleanProperty(false);
   private final BooleanProperty tunEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty cabMix = new SimpleDoubleProperty(1.0);
+  private final BooleanProperty cabEnabled = new SimpleBooleanProperty(false);
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
@@ -121,7 +123,8 @@ public final class AppContext {
         gateThreshold, gateRelease, gateEnabled,
         octMode, octMix, octEnabled,
         loopLength, loopLevel, loopEnabled,
-        volLevel, volEnabled, tunEnabled}) {
+        volLevel, volEnabled, tunEnabled,
+        cabMix, cabEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -436,6 +439,14 @@ public final class AppContext {
     return tunEnabled;
   }
 
+  public DoubleProperty cabMixProperty() {
+    return cabMix;
+  }
+
+  public BooleanProperty cabEnabledProperty() {
+    return cabEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -515,6 +526,8 @@ public final class AppContext {
     state.put("vol.enabled", Boolean.toString(volEnabled.get()));
     state.put("vol.level", Double.toString(volLevel.get()));
     state.put("tun.enabled", Boolean.toString(tunEnabled.get()));
+    state.put("cab.enabled", Boolean.toString(cabEnabled.get()));
+    state.put("cab.mix", Double.toString(cabMix.get()));
     return state;
   }
 
@@ -580,6 +593,8 @@ public final class AppContext {
     volEnabled.set(Boolean.parseBoolean(state.getOrDefault("vol.enabled", "false")));
     volLevel.set(clamp(parse(state.getOrDefault("vol.level", "1")), 0, 1));
     tunEnabled.set(Boolean.parseBoolean(state.getOrDefault("tun.enabled", "false")));
+    cabEnabled.set(Boolean.parseBoolean(state.getOrDefault("cab.enabled", "false")));
+    cabMix.set(clamp(parse(state.getOrDefault("cab.mix", "1")), 0, 1));
   }
 
   private static double parse(String value) {
@@ -632,6 +647,7 @@ public final class AppContext {
     engine.setLooper(loopEnabled.get(), (float) loopLength.get(), (float) loopLevel.get());
     engine.setVolume(volEnabled.get(), (float) volLevel.get());
     engine.setTuner(tunEnabled.get());
+    engine.setCabinet(cabEnabled.get(), (float) cabMix.get());
   }
 
   public void applyTuning(Tuning tuning) {

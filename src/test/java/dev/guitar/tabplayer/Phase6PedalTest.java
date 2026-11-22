@@ -1121,4 +1121,81 @@ class Phase6PedalTest {
                     "a fresh engine with the tuner off must report no pitch");
         }
     }
+
+    /* ---- cabinet ----------------------------------------------------------- */
+
+    /**
+     * Fixture: one bright pluck (string 5 fret 7 ≈ 494 Hz) — the cabinet
+     * shapes its spectrum without changing the notes.
+     */
+    private WavAnalysis.Wav renderCabinet(boolean enabled, float mix) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f));
+        Path wav = tempDir.resolve("cab-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setCabinet(enabled, mix);
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedCabinetLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav clean = renderCabinet(false, 0f);
+        WavAnalysis.Wav knobsUp = renderCabinet(false, 1.0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed cabinet must ignore its knob, ratio=" + ratio);
+    }
+
+    @Test
+    void cabinetMixZeroIsDry() throws Exception {
+        // out = in + (cabbed - in)*mix: mix 0 is an exact passthrough
+        WavAnalysis.Wav clean = renderCabinet(true, 0.0f);
+        WavAnalysis.Wav ref = renderCabinet(false, 0.0f);
+        float ratio = WavAnalysis.rms(clean, 0.05, 0.25) / WavAnalysis.rms(ref, 0.05, 0.25);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "mix 0 cabinet must pass the signal untouched, ratio=" + ratio);
+    }
+
+    @Test
+    void fullCabinetTamesTheTone() throws Exception {
+        // the fixed response (HP + dip + LP) is purely attenuative, so the
+        // body drops a little but must not collapse
+        WavAnalysis.Wav clean = renderCabinet(false, 0f);
+        WavAnalysis.Wav cabbed = renderCabinet(true, 1.0f);
+        float ratio = WavAnalysis.rms(cabbed, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.5f && ratio < 0.95f,
+                "full cabinet must tame but not kill the body, ratio=" + ratio);
+    }
+
+    @Test
+    void cabinetScoopsTheLowMids() throws Exception {
+        // the fixed response dips hard around 400 Hz, so the fundamental
+        // (494 Hz) must drop more than an octave-up harmonic (988 Hz)
+        WavAnalysis.Wav clean = renderCabinet(false, 0f);
+        WavAnalysis.Wav cabbed = renderCabinet(true, 1.0f);
+        double from = 0.05, to = 0.25;
+        float dropFund = WavAnalysis.toneMagnitude(cabbed, from, to, 494.0)
+                / Math.max(WavAnalysis.toneMagnitude(clean, from, to, 494.0), 1e-9f);
+        float dropOct = WavAnalysis.toneMagnitude(cabbed, from, to, 988.0)
+                / Math.max(WavAnalysis.toneMagnitude(clean, from, to, 988.0), 1e-9f);
+        assertTrue(dropFund < dropOct - 0.1f,
+                "the cabinet must scoop the low mids (fundamental drop " + dropFund
+                        + " vs octave drop " + dropOct + ")");
+    }
+
+    @Test
+    void cabinetMixBlendsMonotonically() throws Exception {
+        // more SIM = more of the attenuative response = strictly less body
+        WavAnalysis.Wav half = renderCabinet(true, 0.5f);
+        WavAnalysis.Wav full = renderCabinet(true, 1.0f);
+        float rmsHalf = WavAnalysis.rms(half, 0.05, 0.25);
+        float rmsFull = WavAnalysis.rms(full, 0.05, 0.25);
+        assertTrue(rmsFull < rmsHalf,
+                "more SIM must sit below half SIM (attenuative blend), "
+                        + rmsFull + " vs " + rmsHalf);
+    }
 }
