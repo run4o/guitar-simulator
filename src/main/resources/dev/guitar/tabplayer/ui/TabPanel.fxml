@@ -3,12 +3,15 @@
 <?import javafx.scene.layout.VBox?>
 
 <!-- Tab panel: the sheet header with the tab controls, above the
-     visualization area (graphical score or ASCII source, pixel-exact swap). -->
+     visualization area (graphical score or ASCII source, pixel-exact swap).
+     The pedalboard drawer shares the same StackPane and pops out over the
+     score when opened. -->
 <VBox fx:controller="dev.guitar.tabplayer.ui.controllers.TabPanelController" spacing="8"
       xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
   <fx:include fx:id="sheetHeaderPanel" source="SheetHeaderPanel.fxml"/>
-  <StackPane VBox.vgrow="ALWAYS">
+  <StackPane VBox.vgrow="ALWAYS" alignment="TOP_LEFT">
     <fx:include fx:id="scorePanel" source="ScorePanel.fxml"/>
     <fx:include fx:id="sourcePanel" source="SourcePanel.fxml"/>
+    <fx:include fx:id="pedalPanel" source="PedalPanel.fxml"/>
   </StackPane>
 </VBox>

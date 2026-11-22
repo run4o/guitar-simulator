@@ -32,8 +32,6 @@ public class RootController {
   private VolumePanelController volumePanelController;
   @FXML
   private TunerPanelController tunerPanelController;
-  @FXML
-  private PedalPanelController pedalPanelController;
 
   private AppContext ctx;
   private PlaybackService playback;
@@ -73,10 +71,18 @@ public class RootController {
     soundPanelController.init(ctx);
     volumePanelController.init(ctx);
     tunerPanelController.init(ctx);
-    pedalPanelController.init(ctx);
 
     // App-header File menu: dialogs live in the header panel, actions here.
     appHeader().setActionHandler(this::handleMenuAction);
+
+    // Escape closes the pedalboard drawer wherever focus is.
+    stage.getScene().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+      if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE
+          && ctx.pedalsOpenProperty().get()) {
+        tabPanelController.closePedalDrawer();
+        e.consume();
+      }
+    });
 
     // Debug flags (behavior preserved from the monolith).
     if ("source".equalsIgnoreCase(System.getProperty("guitar.view"))) {
@@ -85,6 +91,9 @@ public class RootController {
     String tuningProp = System.getProperty("guitar.tuning");
     if (tuningProp != null) {
       guitarPanelController.selectTuningNamed(tuningProp);
+    }
+    if ("open".equalsIgnoreCase(System.getProperty("guitar.pedals"))) {
+      tabPanelController.togglePedalDrawer(); // force the drawer open at launch
     }
     soundPanelController.updateStringLabels(guitarPanelController.getTuning());
     tunerPanelController.updateTuning(guitarPanelController.getTuning());

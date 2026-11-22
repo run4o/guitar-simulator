@@ -26,10 +26,12 @@ public class TunerPanelController {
 
   public void init(AppContext ctx) {
     this.ctx = ctx;
+    readout.setMinWidth(0); // the readout shrinks; the string buttons keep their size
     for (int s = 0; s < 6; s++) {
       final int stringIndex = s;
       Button b = new Button("--");
-      b.getStyleClass().add("btn-steel");
+      b.getStyleClass().addAll("btn-steel", "btn-mini");
+      b.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE); // never truncate
       b.setOnAction(e -> pluckOpen(stringIndex));
       buttons[s] = b;
       stringButtons.getChildren().add(b);

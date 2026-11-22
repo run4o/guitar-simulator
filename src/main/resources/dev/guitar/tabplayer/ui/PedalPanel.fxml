@@ -1,16 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
 
-<!-- Pedalboard: one stompbox tile per pedal, laid out left-to-right in signal
-     order (guitar -> pedals -> amp FX). Grows as pedals land. -->
-<ScrollPane fx:controller="dev.guitar.tabplayer.ui.controllers.PedalPanelController"
-            styleClass="pedal-board"
-            hbarPolicy="AS_NEEDED" vbarPolicy="NEVER"
-            fitToHeight="true"
-            xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
-  <HBox fx:id="pedalRow" spacing="10" alignment="TOP_LEFT">
-    <Label styleClass="console-divider"/>
+<!-- Pedalboard drawer: pops out over the score from the PEDALS header
+     button. One stompbox tile per pedal, left-to-right in signal order
+     (guitar -> pedals -> amp FX). Hidden and unmanaged while closed, so
+     the score keeps its full area underneath. -->
+<VBox fx:id="pedalDrawer" fx:controller="dev.guitar.tabplayer.ui.controllers.PedalPanelController"
+      spacing="6" styleClass="pedal-drawer"
+      visible="false" managed="false" maxHeight="-Infinity"
+      xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1">
+  <HBox spacing="10" alignment="CENTER_LEFT">
+    <Label text="PEDALBOARD" styleClass="model-tag"/>
+    <Label text="signal order, guitar → pedals → amp FX · click an LED to engage"
+           styleClass="knob-label"/>
+    <Region HBox.hgrow="ALWAYS"/>
+    <Button fx:id="closeBtn" text="CLOSE" styleClass="btn-steel"/>
   </HBox>
-</ScrollPane>
+  <ScrollPane styleClass="pedal-board"
+              hbarPolicy="AS_NEEDED" vbarPolicy="NEVER"
+              fitToHeight="true">
+    <HBox fx:id="pedalRow" spacing="10" alignment="TOP_LEFT">
+      <Label styleClass="console-divider"/>
+    </HBox>
+  </ScrollPane>
+</VBox>

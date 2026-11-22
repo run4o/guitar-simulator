@@ -31,6 +31,8 @@ public class SheetHeaderController {
   @FXML
   private Button clearBtn;
   @FXML
+  private Button pedalsBtn;
+  @FXML
   private Button editToggle;
   @FXML
   private Pane warningBadge;
@@ -51,6 +53,19 @@ public class SheetHeaderController {
 
   public void setViewToggleText(String text) {
     editToggle.setText(text);
+  }
+
+  /** Wires the pedal-drawer toggle owned by the tab panel. */
+  public void setPedalsToggle(Runnable toggle) {
+    pedalsBtn.setOnAction(e -> toggle.run());
+  }
+
+  /** Highlights the PEDALS button while the drawer is open. */
+  public void setPedalsButtonOpen(boolean open) {
+    pedalsBtn.getStyleClass().remove("btn-toggled");
+    if (open) {
+      pedalsBtn.getStyleClass().add("btn-toggled");
+    }
   }
 
   /**

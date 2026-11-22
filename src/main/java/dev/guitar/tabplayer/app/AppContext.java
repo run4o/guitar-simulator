@@ -97,11 +97,13 @@ public final class AppContext {
   private final DoubleProperty sprDwell = new SimpleDoubleProperty(0.5);
   private final DoubleProperty sprMix = new SimpleDoubleProperty(0.5);
   private final BooleanProperty sprEnabled = new SimpleBooleanProperty(false);
+  /** Pedalboard drawer (pop-out over the score): closed by default. */
+  private final BooleanProperty pedalsOpen = new SimpleBooleanProperty(false);
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
 
-  private AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
+  AppContext(GuitarEngine engine, boolean engineReady, boolean deviceRunning,
       ExecutorService commands, boolean autoplay) {
     this.engine = engine;
     this.engineReady = engineReady;
@@ -463,6 +465,10 @@ public final class AppContext {
     return sprEnabled;
   }
 
+  public BooleanProperty pedalsOpenProperty() {
+    return pedalsOpen;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -547,6 +553,7 @@ public final class AppContext {
     state.put("spr.enabled", Boolean.toString(sprEnabled.get()));
     state.put("spr.dwell", Double.toString(sprDwell.get()));
     state.put("spr.mix", Double.toString(sprMix.get()));
+    state.put("ui.pedalsOpen", Boolean.toString(pedalsOpen.get()));
     return state;
   }
 
@@ -617,6 +624,7 @@ public final class AppContext {
     sprEnabled.set(Boolean.parseBoolean(state.getOrDefault("spr.enabled", "false")));
     sprDwell.set(clamp(parse(state.getOrDefault("spr.dwell", "0.5")), 0, 1));
     sprMix.set(clamp(parse(state.getOrDefault("spr.mix", "0.5")), 0, 1));
+    pedalsOpen.set(Boolean.parseBoolean(state.getOrDefault("ui.pedalsOpen", "false")));
   }
 
   private static double parse(String value) {

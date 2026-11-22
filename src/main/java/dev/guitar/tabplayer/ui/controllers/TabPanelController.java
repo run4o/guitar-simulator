@@ -23,6 +23,8 @@ public class TabPanelController {
   private ScorePanelController scorePanelController;
   @FXML
   private SourcePanelController sourcePanelController;
+  @FXML
+  private PedalPanelController pedalPanelController;
 
   private SheetHeaderController sheetHeaderController;
 
@@ -43,12 +45,27 @@ public class TabPanelController {
     sheetHeaderController = sheetHeaderPanelController;
     sheetHeaderController.setOps(this::blockCopy, this::blockCut, this::blockPaste,
         this::blockDuplicate, this::blockDelete, this::blockClear, this::toggleSourceView);
+    sheetHeaderController.setPedalsToggle(this::togglePedalDrawer);
+    ctx.pedalsOpenProperty().addListener(
+        (o, ov, open) -> sheetHeaderController.setPedalsButtonOpen(open));
+    sheetHeaderController.setPedalsButtonOpen(ctx.pedalsOpenProperty().get());
+    pedalPanelController.init(ctx);
     sourcePanelController.setOnEditStop(() -> {
       if (playback.isPlaying() && onEditStop != null) {
         onEditStop.run();
       }
     });
     scorePanelController.setOnBarClick(this::onScoreBarClick);
+  }
+
+  /** Opens/closes the pedalboard drawer over the score. */
+  public void togglePedalDrawer() {
+    ctx.pedalsOpenProperty().set(!ctx.pedalsOpenProperty().get());
+  }
+
+  /** Closes the pedalboard drawer (Escape). */
+  public void closePedalDrawer() {
+    ctx.pedalsOpenProperty().set(false);
   }
 
   /** Injected by the root controller: user edits stop playback. */

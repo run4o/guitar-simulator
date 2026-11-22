@@ -7,16 +7,24 @@ import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
 /**
- * Pedalboard panel: one stompbox tile per pedal, each bound to its engine
- * parameters in the app context (mirrors the DRIVE/TONE/REVERB wiring).
+ * Pedalboard drawer: pops out over the score from the PEDALS header button.
+ * One stompbox tile per pedal, each bound to its engine parameters in the
+ * app context (mirrors the DRIVE/TONE/REVERB wiring). Visibility rides the
+ * context's pedalsOpen property, so open/close state survives save/load.
  */
 public class PedalPanelController {
 
+  @FXML
+  private VBox pedalDrawer;
+  @FXML
+  private Button closeBtn;
   @FXML
   private HBox pedalRow;
 
@@ -24,6 +32,9 @@ public class PedalPanelController {
 
   public void init(AppContext ctx) {
     this.ctx = ctx;
+    pedalDrawer.visibleProperty().bind(ctx.pedalsOpenProperty());
+    pedalDrawer.managedProperty().bind(ctx.pedalsOpenProperty());
+    closeBtn.setOnAction(e -> ctx.pedalsOpenProperty().set(false));
 
     // BOOST: clean linear gain, 0..+18 dB
     Knob gain = new Knob(0, 18, 6, 44);

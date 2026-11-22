@@ -21,6 +21,7 @@
   <Button fx:id="delBtn" text="DEL" styleClass="btn-steel"/>
   <Button fx:id="clearBtn" text="CLEAR" styleClass="btn-steel"/>
   <Region HBox.hgrow="ALWAYS" minWidth="0"/>
+  <Button fx:id="pedalsBtn" text="PEDALS" styleClass="btn-steel"/>
   <Button fx:id="editToggle" text="VIEW: SOURCE" styleClass="btn-steel"/>
   <Pane fx:id="warningBadge" styleClass="led, led-red" visible="false" managed="false"/>
 </HBox>

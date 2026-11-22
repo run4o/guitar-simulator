@@ -37,6 +37,29 @@
     -fx-padding: 6;
 }
 
+/* Drawer: pops out over the score from the PEDALS header button. */
+.pedal-drawer {
+    -fx-background-color: #1C1F2B;
+    -fx-border-color: #2A2E40;
+    -fx-border-radius: 6;
+    -fx-background-radius: 6;
+    -fx-padding: 8;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.55), 18, 0.1, 0, 4);
+}
+
+/* Toggled-on state for header buttons (e.g. PEDALS while the drawer is open). */
+.btn-toggled {
+    -fx-background-color: #0F3B33;
+    -fx-border-color: #00E5A8;
+    -fx-text-fill: #00E5A8;
+}
+
+/* Compact variant for dense rows (tuner string buttons). */
+.btn-mini {
+    -fx-font-size: 13px;
+    -fx-padding: 3 6 2 6;
+}
+
 .pedal-board > .viewport {
     -fx-background-color: transparent;
 }
