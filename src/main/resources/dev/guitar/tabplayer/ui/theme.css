@@ -54,12 +54,6 @@
     -fx-text-fill: #00E5A8;
 }
 
-/* Compact variant for dense rows (tuner string buttons). */
-.btn-mini {
-    -fx-font-size: 13px;
-    -fx-padding: 3 6 2 6;
-}
-
 .pedal-board > .viewport {
     -fx-background-color: transparent;
 }
