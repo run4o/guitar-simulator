@@ -1011,4 +1011,59 @@ class Phase6PedalTest {
         assertTrue(ratio > 1.8f,
                 "level must scale the loop's presence, ratio=" + ratio);
     }
+
+    /* ---- volume ----------------------------------------------------------- */
+
+    /** Fixture: a single pluck (no mute) — the volume pedal just scales it. */
+    private WavAnalysis.Wav renderVolume(boolean enabled, float level) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f));
+        Path wav = tempDir.resolve("volume-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setVolume(enabled, level);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedVolumeLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderVolume(false, 0.3f);
+        WavAnalysis.Wav clean = renderVolume(false, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed volume must ignore its knob, ratio=" + ratio);
+    }
+
+    @Test
+    void fullVolumeIsUnity() throws Exception {
+        // gain = level²: level 1.0 is exactly 1.0
+        WavAnalysis.Wav clean = renderVolume(false, 0f);
+        WavAnalysis.Wav full = renderVolume(true, 1.0f);
+        float ratio = WavAnalysis.rms(full, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.98f && ratio < 1.02f,
+                "full volume must be unity gain, ratio=" + ratio);
+    }
+
+    @Test
+    void halfVolumeDropsQuadratically() throws Exception {
+        // gain = level²: level 0.5 is 0.25 (about -12 dB)
+        WavAnalysis.Wav clean = renderVolume(false, 0f);
+        WavAnalysis.Wav half = renderVolume(true, 0.5f);
+        float ratio = WavAnalysis.rms(half, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.2f && ratio < 0.3f,
+                "half volume must drop to a quarter of the amplitude, ratio=" + ratio);
+    }
+
+    @Test
+    void zeroVolumeSilences() throws Exception {
+        // gain = level²: level 0.0 is silence
+        WavAnalysis.Wav clean = renderVolume(false, 0f);
+        WavAnalysis.Wav zero = renderVolume(true, 0.0f);
+        float ratio = WavAnalysis.rms(zero, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio < 0.02f,
+                "zero volume must silence the output, ratio=" + ratio);
+    }
 }
