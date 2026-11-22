@@ -595,6 +595,18 @@ public final class GuitarEngine implements AutoCloseable {
   }
 
   /**
+   * Volume pedal: foot-potentiometer attenuation with an audio taper
+   * (level 0..1, gain = level²), after the looper, on both paths.
+   */
+  public void setVolume(boolean enabled, float level) {
+    try {
+      setVolumeFn.invokeExact(enabled, level);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_set_volume failed", t);
+    }
+  }
+
+  /**
    * Guitar simulation: 0 = acoustic, 1 = electric single coil, 2 = electric humbucker.
    */
   public void setGuitarModel(int model) {
