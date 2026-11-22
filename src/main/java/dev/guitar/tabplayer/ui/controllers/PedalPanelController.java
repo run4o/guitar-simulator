@@ -211,5 +211,16 @@ public class PedalPanelController {
     octMode.valueProperty().bindBidirectional(ctx.octModeProperty());
     octMix.valueProperty().bindBidirectional(ctx.octMixProperty());
     pedalRow.getChildren().add(octave);
+
+    // LOOPER: phrase looper (loop replays the recorded past)
+    Knob loopLength = new Knob(0, 1, 0.0, 44);
+    Knob loopLevel = new Knob(0, 1, 0.7, 44);
+    PedalBox looper = new PedalBox("LOOPER");
+    looper.addKnob(loopLength, "LENGTH");
+    looper.addKnob(loopLevel, "LEVEL");
+    looper.enabledProperty().bindBidirectional(ctx.loopEnabledProperty());
+    loopLength.valueProperty().bindBidirectional(ctx.loopLengthProperty());
+    loopLevel.valueProperty().bindBidirectional(ctx.loopLevelProperty());
+    pedalRow.getChildren().add(looper);
   }
 }

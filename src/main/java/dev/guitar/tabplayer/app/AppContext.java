@@ -408,6 +408,18 @@ public final class AppContext {
     return octEnabled;
   }
 
+  public DoubleProperty loopLengthProperty() {
+    return loopLength;
+  }
+
+  public DoubleProperty loopLevelProperty() {
+    return loopLevel;
+  }
+
+  public BooleanProperty loopEnabledProperty() {
+    return loopEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));

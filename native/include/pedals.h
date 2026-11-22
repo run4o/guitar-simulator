@@ -860,8 +860,9 @@ public:
 
     float process(float in) override {
         const float looped = buffer_[write_];
-        // overdub: the old layer decays a little, the new input layers on
-        buffer_[write_] = looped * 0.8f + in * 0.4f;
+        // sound-on-sound overdub: the first pass records the full input,
+        // later passes layer on top of the decaying loop
+        buffer_[write_] = in + looped * 0.8f;
         write_ = write_ + 1 == loop_samples_ ? 0 : write_ + 1;
         return in + looped * level_;
     }

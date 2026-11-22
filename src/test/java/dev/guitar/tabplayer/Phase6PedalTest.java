@@ -953,4 +953,62 @@ class Phase6PedalTest {
         assertTrue(ratio > 0.98f && ratio < 1.02f,
                 "mix 0 octave must pass the signal untouched, ratio=" + ratio);
     }
+
+    /* ---- looper ----------------------------------------------------------- */
+
+    /** Fixture: a single pluck left to decay (no mute) — the looper must
+     * replay the loud early content one loop length later. */
+    private WavAnalysis.Wav renderLooper(boolean enabled, float length, float level) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 0, 0, 0.9f, 0f));
+        Path wav = tempDir.resolve("looper-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setLooper(enabled, length, level);
+            assertTrue(engine.renderSequenceToWav(wav, 1.2f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void bypassedLooperLeavesTheSignalUntouched() throws Exception {
+        WavAnalysis.Wav knobsUp = renderLooper(false, 0.8f, 0.9f);
+        WavAnalysis.Wav clean = renderLooper(false, 0f, 0f);
+        float ratio = WavAnalysis.rms(knobsUp, 0.05, 0.25) / WavAnalysis.rms(clean, 0.05, 0.25);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "bypassed looper must ignore its knobs, ratio=" + ratio);
+    }
+
+    @Test
+    void dryAtTheStart() throws Exception {
+        // the loop buffer starts empty: the first 50 ms must be dry
+        WavAnalysis.Wav clean = renderLooper(false, 0f, 0f);
+        WavAnalysis.Wav looped = renderLooper(true, 0.0f, 1.0f);
+        float ratio = WavAnalysis.rms(looped, 0.00, 0.05) / WavAnalysis.rms(clean, 0.00, 0.05);
+        assertTrue(ratio > 0.95f && ratio < 1.05f,
+                "an empty loop must pass the signal dry, ratio=" + ratio);
+    }
+
+    @Test
+    void loopReplaysThePast() throws Exception {
+        // a 0.25 s loop (length knob 0) replays the loud early pluck one
+        // loop later: 0.30-0.45 s carries content recorded at 0.05-0.20 s
+        WavAnalysis.Wav clean = renderLooper(false, 0f, 0f);
+        WavAnalysis.Wav looped = renderLooper(true, 0.0f, 1.0f);
+        float ratio = WavAnalysis.rms(looped, 0.30, 0.45) / WavAnalysis.rms(clean, 0.30, 0.45);
+        assertTrue(ratio > 2.0f,
+                "the loop must replay the recorded past, ratio=" + ratio);
+    }
+
+    @Test
+    void looperLevelScalesTheLoop() throws Exception {
+        // the looped content rides on top of the dry signal, so the LEVEL
+        // knob scales how much past comes back (level 0 = dry only)
+        WavAnalysis.Wav low = renderLooper(true, 0.0f, 0.0f);
+        WavAnalysis.Wav high = renderLooper(true, 0.0f, 1.0f);
+        float ratio = WavAnalysis.rms(high, 0.30, 0.40) / WavAnalysis.rms(low, 0.30, 0.40);
+        assertTrue(ratio > 1.8f,
+                "level must scale the loop's presence, ratio=" + ratio);
+    }
 }
