@@ -89,6 +89,8 @@ public final class AppContext {
   private final DoubleProperty loopLength = new SimpleDoubleProperty(0.5);
   private final DoubleProperty loopLevel = new SimpleDoubleProperty(0.7);
   private final BooleanProperty loopEnabled = new SimpleBooleanProperty(false);
+  private final DoubleProperty volLevel = new SimpleDoubleProperty(1.0);
+  private final BooleanProperty volEnabled = new SimpleBooleanProperty(false);
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
@@ -117,7 +119,8 @@ public final class AppContext {
         wahRate, wahCenter, wahResonance, wahEnabled,
         gateThreshold, gateRelease, gateEnabled,
         octMode, octMix, octEnabled,
-        loopLength, loopLevel, loopEnabled}) {
+        loopLength, loopLevel, loopEnabled,
+        volLevel, volEnabled}) {
       if (p instanceof DoubleProperty d) {
         d.addListener((o, ov, nv) -> applyPedals());
       } else if (p instanceof BooleanProperty b) {
@@ -420,6 +423,14 @@ public final class AppContext {
     return loopEnabled;
   }
 
+  public DoubleProperty volLevelProperty() {
+    return volLevel;
+  }
+
+  public BooleanProperty volEnabledProperty() {
+    return volEnabled;
+  }
+
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
   public void setFxValues(double drive, double tone, double reverb, double master) {
     this.drive.set(Math.max(0, Math.min(1, drive)));
@@ -496,6 +507,8 @@ public final class AppContext {
     state.put("loop.enabled", Boolean.toString(loopEnabled.get()));
     state.put("loop.length", Double.toString(loopLength.get()));
     state.put("loop.level", Double.toString(loopLevel.get()));
+    state.put("vol.enabled", Boolean.toString(volEnabled.get()));
+    state.put("vol.level", Double.toString(volLevel.get()));
     return state;
   }
 

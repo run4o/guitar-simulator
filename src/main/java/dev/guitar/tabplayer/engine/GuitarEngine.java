@@ -57,6 +57,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setWahFn;
   private final MethodHandle setGateFn;
   private final MethodHandle setLooperFn;
+  private final MethodHandle setVolumeFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
   private final MethodHandle getLevelFn;
@@ -128,6 +129,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setLooperFn = linker.downcallHandle(symbols.find("guitar_engine_set_looper").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
+      setVolumeFn = linker.downcallHandle(symbols.find("guitar_engine_set_volume").orElseThrow(),
+          FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
           FunctionDescriptor.ofVoid(C_BOOL, C_FLOAT, C_FLOAT));
       setGainFn = linker.downcallHandle(symbols.find("guitar_engine_set_string_gain").orElseThrow(),

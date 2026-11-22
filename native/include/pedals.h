@@ -877,6 +877,25 @@ private:
 };
 
 /*
+ * Volume: a foot-operated potentiometer bleeding the signal to ground —
+ * pure attenuation with an audio taper (level², so the knob's travel
+ * matches perceived loudness). No coloring, no shaping.
+ */
+class VolumePedal : public Pedal {
+public:
+    void setParams(float level) {
+        level_ = std::clamp(level, 0.0f, 1.0f);
+        gain_ = level_ * level_; // audio taper: half the knob ≈ -12 dB
+    }
+
+    float process(float in) override { return in * gain_; }
+
+private:
+    float level_ = 1.0f;
+    float gain_ = 1.0f;
+};
+
+/*
  * Fixed-order chain. One instance per channel (delay/chorus-style pedals
  * keep per-channel state), params snapped from atomics once per block.
  */
@@ -982,6 +1001,11 @@ public:
         looper_.setParams(length, level);
     }
 
+    void setVolume(bool enabled, float level) {
+        volume_.enabled = enabled;
+        volume_.setParams(level);
+    }
+
     float process(float in) {
         if (boost_.enabled) {
             in = boost_.process(in);
@@ -1031,6 +1055,9 @@ public:
         if (looper_.enabled) {
             in = looper_.process(in);
         }
+        if (volume_.enabled) {
+            in = volume_.process(in);
+        }
         return in;
     }
 
@@ -1052,6 +1079,7 @@ private:
     GatePedal gate_;
     OctavePedal octave_;
     LooperPedal looper_;
+    VolumePedal volume_;
 };
 
 } // namespace gte
