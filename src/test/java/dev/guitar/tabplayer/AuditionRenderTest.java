@@ -12,12 +12,12 @@ import java.util.List;
 class AuditionRenderTest {
 
   private static void chug(List<RenderCommand> commands) {
-    // low-string chug pattern: three hits with palm-style chokes
-    commands.add(new RenderCommand(0.00f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 0f));
-    commands.add(new RenderCommand(0.28f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f));
-    commands.add(new RenderCommand(0.40f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 0f));
-    commands.add(new RenderCommand(0.68f, GuitarEngine.EVENT_MUTE, 0, 0, 0f, 0f));
-    commands.add(new RenderCommand(0.80f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 0f));
+    // palm-muted low-string chug pattern: short notes that keep their pitch
+    // and thump (the last field is the palm-mute flag), then one ring-out
+    commands.add(new RenderCommand(0.00f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 1f));
+    commands.add(new RenderCommand(0.28f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 1f));
+    commands.add(new RenderCommand(0.56f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 1f));
+    commands.add(new RenderCommand(0.84f, GuitarEngine.EVENT_PLUCK, 0, 0, 1.0f, 1f));
     commands.add(new RenderCommand(1.20f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f));
   }
 

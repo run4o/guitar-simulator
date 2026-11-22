@@ -12,6 +12,8 @@ import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 
 /**
  * Application-wide state shared by every panel controller: the synthesis
@@ -105,6 +107,8 @@ public final class AppContext {
   private final IntegerProperty ampModel = new SimpleIntegerProperty(0);
   /** Sustain knob 0..1; 0.5 is neutral. Maps to a 0.25x..4x ring multiplier. */
   private final DoubleProperty sustain = new SimpleDoubleProperty(0.5);
+  /** Cabinet IR file path (empty = modeled cabinet). */
+  private final StringProperty cabIrPath = new SimpleStringProperty("");
   private final DoubleProperty octMode = new SimpleDoubleProperty(0.0);
   private final DoubleProperty octMix = new SimpleDoubleProperty(0.7);
   private final BooleanProperty octEnabled = new SimpleBooleanProperty(false);
@@ -121,6 +125,7 @@ public final class AppContext {
     }
     ampModel.addListener((o, ov, nv) -> applyFx());
     sustain.addListener((o, ov, nv) -> applySustain());
+    cabIrPath.addListener((o, ov, nv) -> applyCabinetIr());
     for (Object p : new Object[]{boostGain, boostEnabled, odDrive, odTone, odEnabled,
         distDrive, distTone, distLevel, distEnabled,
         fuzzAmount, fuzzVolume, fuzzEnabled,
@@ -485,6 +490,10 @@ public final class AppContext {
     return sustain;
   }
 
+  public StringProperty cabIrPathProperty() {
+    return cabIrPath;
+  }
+
   /** Knob 0..1 -> ring multiplier 0.25x..4x, 0.5 = 1x (neutral). */
   public static double sustainMultiplier(double knob) {
     return Math.pow(4.0, (clamp(knob, 0, 1) - 0.5) * 2.0);
@@ -495,6 +504,14 @@ public final class AppContext {
       return;
     }
     engine.setSustain((float) sustainMultiplier(sustain.get()));
+  }
+
+  private void applyCabinetIr() {
+    if (!engineReady) {
+      return;
+    }
+    String path = cabIrPath.get();
+    engine.loadCabinetIr(path == null || path.isBlank() ? null : java.nio.file.Path.of(path));
   }
 
   /** Debug flag: preselect FX (-Dguitar.fx=drive,tone,reverb,master). */
@@ -584,6 +601,7 @@ public final class AppContext {
     state.put("ui.pedalsOpen", Boolean.toString(pedalsOpen.get()));
     state.put("ui.ampModel", Integer.toString(ampModel.get()));
     state.put("ui.sustain", Double.toString(sustain.get()));
+    state.put("cab.irpath", cabIrPath.get() == null ? "" : cabIrPath.get());
     return state;
   }
 
@@ -662,6 +680,7 @@ public final class AppContext {
       ampModel.set(0); // corrupt value falls back to the clean channel
     }
     sustain.set(clamp(parse(state.getOrDefault("ui.sustain", "0.5")), 0, 1));
+    cabIrPath.set(state.getOrDefault("cab.irpath", ""));
   }
 
   private static double parse(String value) {

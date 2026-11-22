@@ -54,6 +54,7 @@ public:
         set_envelope(palm_mute ? kPalmMuteT60 : model_t60_ * sustain_mult_,
                      palm_mute ? kPalmMuteCutoff : model_cutoff_);
         excite(velocity);
+        pick_env_ = velocity * pick_gain_ * 1.5f; // one-shot output spike
     }
 
     /* Hammer-on / pull-off: retune without new excitation. `slew_seconds`
@@ -135,6 +136,9 @@ public:
         // delay of the two loop allpasses is pre-compensated in the tuning
         disp_a_ = model_ == 0 ? 0.30f : (model_ == 1 ? 0.40f : 0.45f);
         disp_gd_ = 2.0f * (2.0f * disp_a_ / (1.0f - disp_a_ * disp_a_));
+        // pick transient strength per model (a hot pickup spits more)
+        pick_gain_ = model_ == 0 ? 0.15f : (model_ == 1 ? 0.3f : 0.65f);
+        click_decay_ = std::exp(-1.0f / (0.005f * fs_));
         set_envelope(model_t60_, model_cutoff_);
     }
 
@@ -198,6 +202,12 @@ public:
         buf_[write_idx_] = fb;
         write_idx_ = wrap(write_idx_ + 1);
 
+        // Pick transient: a fast-decaying one-shot click at the output —
+        // the "spit" lives in the pickup/electronics, it never re-excites
+        // the string loop, so measurement paths stay clean.
+        const float click = pick_env_ * noise() * 0.8f;
+        pick_env_ *= click_decay_;
+
         if (model_ != 0) {
             /* Magnetic pickup: comb filter on the loop output. The tap pair is
              * separated by pickup_frac * loop length, giving per-harmonic
@@ -209,19 +219,19 @@ public:
             const float x0 = buf_[wrap(write_idx_ - n)];
             const float xt = buf_[wrap(write_idx_ - n - tau)];
             if (model_ == 1) {
-                return 0.5f * (x0 - xt);
+                return 0.5f * (x0 - xt) + click;
             }
             const int tau2 = std::max(tau + 2, std::min(
                     static_cast<int>(pickup_frac2_ * nominal_delay_), kBufferSamples / 3));
             const float xt2 = buf_[wrap(write_idx_ - n - tau2)];
-            return 0.25f * ((x0 - xt) + (x0 - xt2));
+            return 0.25f * ((x0 - xt) + (x0 - xt2)) + click;
         }
 
         // DC blocker: hp = x - x_prev + R*hp_prev
         float hp = fb - dc_prev_ + 0.995f * dc_state_;
         dc_prev_ = fb;
         dc_state_ = hp;
-        return hp;
+        return hp + click;
     }
 
 private:
@@ -284,7 +294,8 @@ private:
         lp_state_ = ap_state_;
     }
 
-    void excite(float velocity) {        std::fill(buf_.begin(), buf_.end(), 0.0f); // choke any ringing energy
+    void excite(float velocity) {
+        std::fill(buf_.begin(), buf_.end(), 0.0f); // choke any ringing energy
         disp_x1_ = disp_y1_ = disp_x2_ = disp_y2_ = 0.0f;
         int count = std::min(static_cast<int>(std::ceil(delay_)) + 4, kBufferSamples - 8);
         float amp = velocity;
@@ -319,6 +330,9 @@ private:
     float disp_gd_ = 0.0f;  // the allpasses' DC group delay (tuning-compensated)
     float disp_x1_ = 0.0f, disp_y1_ = 0.0f;
     float disp_x2_ = 0.0f, disp_y2_ = 0.0f;
+    float pick_gain_ = 0.4f; // pick-transient level (per model)
+    float pick_env_ = 0.0f;  // one-shot output click envelope
+    float click_decay_ = 0.99f;
     float model_cutoff_ = kNormalCutoff;
     float excite_smooth_ = kExciteSmooth;
     float pickup_frac_ = -1.0f;

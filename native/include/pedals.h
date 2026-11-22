@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <mutex>
 #include <vector>
 
 namespace gte {
@@ -953,6 +955,64 @@ private:
  * (0 = dry signal, 1 = fully cab'd), so it can double as a subtle
  * "amp-in-the-room" tamer for the otherwise flat synth voice.
  */
+/*
+ * Cabinet IR: an optional impulse response that replaces the cabinet's
+ * biquad voicing with true FFT convolution. Shared by every cabinet
+ * instance (realtime L/R and offline). The loader swaps the taps under
+ * the mutex and bumps the generation; consumers re-arm on the change.
+ */
+struct CabinetIr {
+    std::mutex mu;
+    std::vector<float> taps;  // mono impulse response
+    unsigned rate = 44100;    // the IR's native sample rate
+    std::atomic<unsigned> generation{0};
+};
+inline CabinetIr g_cabinet_ir; // C++17 inline variable
+
+/* Minimal iterative radix-2 complex FFT (n must be a power of two). */
+inline void fft_inplace(float* re, float* im, int n, bool inverse) {
+    for (int i = 1, j = 0; i < n; ++i) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1) {
+            j ^= bit;
+        }
+        j ^= bit;
+        if (i < j) {
+            std::swap(re[i], re[j]);
+            std::swap(im[i], im[j]);
+        }
+    }
+    for (int len = 2; len <= n; len <<= 1) {
+        const float ang = (inverse ? 2.0f : -2.0f) * 3.14159265f / static_cast<float>(len);
+        const float wr = std::cos(ang);
+        const float wi = std::sin(ang);
+        for (int i = 0; i < n; i += len) {
+            float cr = 1.0f;
+            float ci = 0.0f;
+            for (int k = 0; k < len / 2; ++k) {
+                const int a = i + k;
+                const int b = a + len / 2;
+                const float tr = re[b] * cr - im[b] * ci;
+                const float ti = re[b] * ci + im[b] * cr;
+                re[b] = re[a] - tr;
+                im[b] = im[a] - ti;
+                re[a] += tr;
+                im[a] += ti;
+                const float nr = cr * wr - ci * wi;
+                ci = cr * wi + ci * wr;
+                cr = nr;
+            }
+        }
+    }
+    if (inverse) {
+        const float inv = 1.0f / static_cast<float>(n);
+        for (int i = 0; i < n; ++i) {
+            re[i] *= inv;
+            im[i] *= inv;
+        }
+    }
+}
+
 class CabinetPedal : public Pedal {
 private:
     /* Generic RBJ biquad section with its own state. */
@@ -1013,6 +1073,16 @@ public:
             s.reset();
         }
         design();
+        // IR state: reset and force a re-sync (fs may have changed)
+        ir_in_w_ = 0;
+        ir_out_read_ = 0;
+        ir_active_ = 0;
+        for (auto& buf : ir_out_) {
+            std::fill(std::begin(buf), std::end(buf), 0.0f);
+        }
+        std::fill(std::begin(ir_in_), std::end(ir_in_), 0.0f);
+        ir_ready_ = false;
+        ir_seen_gen_ = 0;
     }
 
     void setParams(float mix) {
@@ -1020,14 +1090,29 @@ public:
     }
 
     float process(float in) override {
-        float x = in;
-        for (auto& s : sections_) {
-            x = s.process(x);
+        syncIr();
+        if (!ir_ready_) {
+            float x = in;
+            for (auto& s : sections_) {
+                x = s.process(x);
+            }
+            // one-pole ultra-high cut (cone breakup's last bite)
+            ultra_state_ += ultra_coef_ * (x - ultra_state_);
+            x = ultra_state_;
+            return in + (x - in) * mix_;
         }
-        // one-pole ultra-high cut (cone breakup's last bite)
-        ultra_state_ += ultra_coef_ * (x - ultra_state_);
-        x = ultra_state_;
-        return in + (x - in) * mix_;
+        // IR path: 512-sample overlap-save FFT convolution (one block of
+        // latency, identical on every instance, so stereo stays put).
+        const float out = ir_out_[ir_active_][ir_out_read_++];
+        if (ir_out_read_ == kIrBlock) {
+            ir_out_read_ = 0;
+        }
+        ir_in_[ir_in_w_++] = in;
+        if (ir_in_w_ == kIrBlock) {
+            ir_in_w_ = 0;
+            processIrBlock();
+        }
+        return in + (out - in) * mix_;
     }
 
 private:
@@ -1046,6 +1131,102 @@ private:
         sections_[6].setLowPass(fs_, 5200.0f, 0.8f);
         ultra_coef_ = 1.0f - std::exp(-6.2831853f * 9000.0f / fs_);
     }
+
+    /* Re-arms the IR path when the shared IR changes: copies the taps,
+     * resamples to fs_ if needed, and FFTs the 512-tap partitions once. */
+    void syncIr() {
+        const unsigned gen = g_cabinet_ir.generation.load(std::memory_order_acquire);
+        if (gen == ir_seen_gen_) {
+            return;
+        }
+        ir_seen_gen_ = gen;
+        std::vector<float> taps;
+        unsigned rate = 44100;
+        {
+            std::lock_guard<std::mutex> lock(g_cabinet_ir.mu);
+            taps = g_cabinet_ir.taps;
+            rate = g_cabinet_ir.rate;
+        }
+        if (taps.empty()) {
+            ir_ready_ = false;
+            return;
+        }
+        // resample the IR to this instance's rate when they differ
+        if (static_cast<int>(rate) != static_cast<int>(fs_)) {
+            const size_t out_n = taps.size() * static_cast<size_t>(fs_ / rate);
+            std::vector<float> resampled(out_n > 0 ? out_n : 1, 0.0f);
+            for (size_t i = 0; i < out_n; ++i) {
+                const float pos = static_cast<float>(i) * rate / fs_;
+                const size_t i0 = std::min(static_cast<size_t>(pos), taps.size() - 1);
+                const size_t i1 = std::min(i0 + 1, taps.size() - 1);
+                const float fr = pos - static_cast<float>(i0);
+                resampled[i] = taps[i0] * (1.0f - fr) + taps[i1] * fr;
+            }
+            taps = resampled;
+        }
+        if (taps.size() > 32u * kIrBlock) {
+            taps.resize(32u * kIrBlock);
+        }
+        const int partitions = static_cast<int>((taps.size() + kIrBlock - 1) / kIrBlock);
+        ir_spec_re_.assign(static_cast<size_t>(partitions) * 2 * kIrBlock, 0.0f);
+        ir_spec_im_.assign(ir_spec_re_.size(), 0.0f);
+        for (int p = 0; p < partitions; ++p) {
+            float* re = ir_spec_re_.data() + static_cast<size_t>(p) * 2 * kIrBlock;
+            float* im = ir_spec_im_.data() + static_cast<size_t>(p) * 2 * kIrBlock;
+            for (int j = 0; j < kIrBlock; ++j) {
+                const size_t idx = static_cast<size_t>(p) * kIrBlock + j;
+                re[j] = idx < taps.size() ? taps[idx] : 0.0f;
+            }
+            fft_inplace(re, im, 2 * kIrBlock, false);
+        }
+        acc_re_.assign(2 * kIrBlock, 0.0f);
+        acc_im_.assign(2 * kIrBlock, 0.0f);
+        ir_hist_.assign(2 * kIrBlock, 0.0f);
+        ir_ready_ = true;
+    }
+
+    /* Overlap-save: FFT of [previous block | new block], complex product
+     * with every IR partition summed in the frequency domain, IFFT, and
+     * the last half becomes this block's output. */
+    void processIrBlock() {
+        std::copy(ir_hist_.begin() + kIrBlock, ir_hist_.end(), ir_hist_.begin());
+        for (int j = 0; j < kIrBlock; ++j) {
+            ir_hist_[kIrBlock + j] = ir_in_[j];
+        }
+        std::copy(ir_hist_.begin(), ir_hist_.end(), acc_re_.begin());
+        std::fill(acc_im_.begin(), acc_im_.end(), 0.0f);
+        fft_inplace(acc_re_.data(), acc_im_.data(), 2 * kIrBlock, false);
+        const size_t n2 = 2u * kIrBlock;
+        const int partitions = static_cast<int>(ir_spec_re_.size() / n2);
+        for (int p = 0; p < partitions; ++p) {
+            const float* hre = ir_spec_re_.data() + static_cast<size_t>(p) * n2;
+            const float* him = ir_spec_im_.data() + static_cast<size_t>(p) * n2;
+            for (size_t i = 0; i < n2; ++i) {
+                const float r = acc_re_[i] * hre[i] - acc_im_[i] * him[i];
+                acc_im_[i] = acc_re_[i] * him[i] + acc_im_[i] * hre[i];
+                acc_re_[i] = r;
+            }
+        }
+        fft_inplace(acc_re_.data(), acc_im_.data(), 2 * kIrBlock, true);
+        const int next = 1 - ir_active_;
+        for (int j = 0; j < kIrBlock; ++j) {
+            ir_out_[next][j] = acc_re_[kIrBlock + j];
+        }
+        ir_active_ = next;
+        ir_out_read_ = 0;
+    }
+
+    static constexpr int kIrBlock = 512;
+    std::vector<float> ir_spec_re_, ir_spec_im_;
+    std::vector<float> acc_re_, acc_im_;
+    std::vector<float> ir_hist_;
+    float ir_in_[kIrBlock] = {};
+    float ir_out_[2][kIrBlock] = {};
+    int ir_in_w_ = 0;
+    int ir_out_read_ = 0;
+    int ir_active_ = 0;
+    unsigned ir_seen_gen_ = 0;
+    bool ir_ready_ = false;
 
     float fs_ = 44100.0f;
     float mix_ = 1.0f;

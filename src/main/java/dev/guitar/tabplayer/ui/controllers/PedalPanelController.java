@@ -258,12 +258,28 @@ public class PedalPanelController {
     pedalRow.getChildren().add(tuner);
     startTunerPoll(tunerReadout);
 
-    // CABINET: fixed 4x12 speaker response blended over the dry signal
+    // CABINET: fixed 4x12 speaker response blended over the dry signal,
+    // replaceable by a real cabinet IR (WAV) loaded from disk
     Knob cabMix = new Knob(0, 1, 1.0, 44);
     PedalBox cabinet = new PedalBox("CABINET");
     cabinet.addKnob(cabMix, "SIM");
     cabinet.enabledProperty().bindBidirectional(ctx.cabEnabledProperty());
     cabMix.valueProperty().bindBidirectional(ctx.cabMixProperty());
+    javafx.scene.control.Button irBtn = new javafx.scene.control.Button("IR…");
+    irBtn.setMaxWidth(Double.MAX_VALUE);
+    irBtn.setOnAction(e -> {
+      javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
+      chooser.setTitle("Load Cabinet IR");
+      chooser.getExtensionFilters().add(
+          new javafx.stage.FileChooser.ExtensionFilter("Cabinet IR (WAV)", "*.wav", "*.wave"));
+      java.io.File file = chooser.showOpenDialog(pedalRow.getScene() == null
+          ? null : pedalRow.getScene().getWindow());
+      if (file != null) {
+        ctx.cabIrPathProperty().set(file.getAbsolutePath());
+        ctx.status("CABINET IR: " + file.getName());
+      }
+    });
+    cabinet.getChildren().add(irBtn);
     pedalRow.getChildren().add(cabinet);
 
     // SPRING: band-limited ringing combs (the "boing" reverb)

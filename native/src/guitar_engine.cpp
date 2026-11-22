@@ -829,6 +829,103 @@ GTE_EXPORT void guitar_engine_set_amp_model(int model) {
     g_fx.amp_model.store(std::clamp(model, 0, 2), std::memory_order_relaxed);
 }
 
+/* Cabinet IR: load a WAV impulse response (16-bit PCM or 32-bit float,
+ * mono or stereo) that replaces the cabinet pedal's biquad voicing with
+ * true FFT convolution. An empty path reverts to the modeled cabinet.
+ * Returns false when the file can't be read or parsed. */
+GTE_EXPORT bool guitar_engine_load_cabinet_ir(const char* path_utf8) {
+    std::vector<float> taps;
+    unsigned rate = 44100;
+    if (path_utf8 != nullptr && path_utf8[0] != '\0') {
+        FILE* f = std::fopen(path_utf8, "rb");
+        if (f == nullptr) return false;
+        auto readExact = [&](unsigned char* dst, size_t n) {
+            return std::fread(dst, 1, n, f) == n;
+        };
+        auto readU16 = [&](unsigned& v) {
+            unsigned char b[2];
+            if (!readExact(b, 2)) return false;
+            v = static_cast<unsigned>(b[0]) | (static_cast<unsigned>(b[1]) << 8);
+            return true;
+        };
+        auto readU32 = [&](unsigned& v) {
+            unsigned char b[4];
+            if (!readExact(b, 4)) return false;
+            v = static_cast<unsigned>(b[0]) | (static_cast<unsigned>(b[1]) << 8)
+                | (static_cast<unsigned>(b[2]) << 16) | (static_cast<unsigned>(b[3]) << 24);
+            return true;
+        };
+        bool ok = false;
+        unsigned fmt = 0, channels = 0, file_rate = 44100;
+        unsigned data_size = 0;
+        std::vector<unsigned char> data;
+        do {
+            unsigned char id[4];
+            if (!readExact(id, 4)) break;
+            unsigned size = 0;
+            if (!readU32(size)) break;
+            if (std::memcmp(id, "RIFF", 4) == 0) {
+                std::fseek(f, 4, SEEK_CUR); // skip the "WAVE" tag only
+                continue;
+            }
+            if (std::memcmp(id, "fmt ", 4) == 0) {
+                unsigned char fmtBuf[16];
+                if (!readExact(fmtBuf, 16)) break;
+                fmt = static_cast<unsigned>(fmtBuf[0]) | (static_cast<unsigned>(fmtBuf[1]) << 8);
+                channels = static_cast<unsigned>(fmtBuf[2]) | (static_cast<unsigned>(fmtBuf[3]) << 8);
+                file_rate = static_cast<unsigned>(fmtBuf[4]) | (static_cast<unsigned>(fmtBuf[5]) << 8)
+                    | (static_cast<unsigned>(fmtBuf[6]) << 16) | (static_cast<unsigned>(fmtBuf[7]) << 24);
+                if (size > 16) {
+                    std::fseek(f, static_cast<long>(size - 16), SEEK_CUR);
+                }
+                continue;
+            }
+            if (std::memcmp(id, "data", 4) == 0) {
+                data_size = size;
+                data.resize(size > (1u << 22) ? (1u << 22) : size); // cap 4 MiB
+                if (!readExact(data.data(), data.size())) break;
+                data_size = static_cast<unsigned>(data.size());
+                std::fseek(f, static_cast<long>(size) - static_cast<long>(data_size), SEEK_CUR);
+                continue;
+            }
+            std::fseek(f, static_cast<long>(size) + (size & 1u), SEEK_CUR);
+        } while (true);
+        std::fclose(f);
+        if ((fmt == 1 || fmt == 3) && channels >= 1 && !data.empty()) {
+            const unsigned bytes_per_sample = fmt == 1 ? 2u : 4u;
+            const unsigned frames = data_size / (bytes_per_sample * channels);
+            taps.reserve(frames);
+            for (unsigned i = 0; i < frames; ++i) {
+                float mono = 0.0f;
+                for (unsigned ch = 0; ch < channels; ++ch) {
+                    const size_t off = (static_cast<size_t>(i) * channels + ch) * bytes_per_sample;
+                    float s = 0.0f;
+                    if (fmt == 1) {
+                        const short v = static_cast<short>(
+                            static_cast<unsigned short>(data[off])
+                            | (static_cast<unsigned short>(data[off + 1]) << 8));
+                        s = static_cast<float>(v) / 32768.0f;
+                    } else {
+                        std::memcpy(&s, &data[off], 4);
+                    }
+                    mono += s;
+                }
+                taps.push_back(mono / static_cast<float>(channels));
+            }
+            rate = file_rate;
+            ok = taps.size() >= 16;
+        }
+        if (!ok) return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(gte::g_cabinet_ir.mu);
+        gte::g_cabinet_ir.taps.swap(taps);
+        gte::g_cabinet_ir.rate = rate;
+    }
+    gte::g_cabinet_ir.generation.fetch_add(1, std::memory_order_release);
+    return true;
+}
+
 /* String sustain: multiplier on the string model's ring time (0.25..4,
  * 1.0 = nominal). Applies to plucks/legato/bends, not mutes. */
 GTE_EXPORT void guitar_engine_set_sustain(float multiplier) {

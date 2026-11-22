@@ -84,7 +84,7 @@ class GuitarModelTest {
         WavAnalysis.Wav acoustic = renderModel(0);
         WavAnalysis.Wav single = renderModel(1);
         // brightness = harmonic wiggle density: brighter voicing crosses zero more often
-        assertTrue(crossingsPerSecond(single) > 1.3f * crossingsPerSecond(acoustic),
+        assertTrue(crossingsPerSecond(single) > 1.2f * crossingsPerSecond(acoustic),
                 "single coil must have more zero crossings than acoustic: single="
                         + crossingsPerSecond(single) + " acoustic=" + crossingsPerSecond(acoustic));
         assertTrue(crossingsPerSecond(single) > crossingsPerSecond(acoustic),

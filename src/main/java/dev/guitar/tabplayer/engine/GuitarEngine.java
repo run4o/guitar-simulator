@@ -27,6 +27,7 @@ public final class GuitarEngine implements AutoCloseable {
   private static final ValueLayout.OfBoolean C_BOOL = ValueLayout.JAVA_BOOLEAN;
   private static final ValueLayout.OfInt C_INT = ValueLayout.JAVA_INT;
   private static final ValueLayout.OfFloat C_FLOAT = ValueLayout.JAVA_FLOAT;
+  private static final java.lang.foreign.AddressLayout C_POINTER = java.lang.foreign.ValueLayout.ADDRESS;
 
   private final Arena arena;
   private final MethodHandle initFn;
@@ -63,6 +64,7 @@ public final class GuitarEngine implements AutoCloseable {
   private final MethodHandle setSpringFn;
   private final MethodHandle setAmpModelFn;
   private final MethodHandle setSustainFn;
+  private final MethodHandle loadIrFn;
   private final MethodHandle getTunerHzFn;
   private final MethodHandle setOctaveFn;
   private final MethodHandle setGainFn;
@@ -147,6 +149,8 @@ public final class GuitarEngine implements AutoCloseable {
           FunctionDescriptor.ofVoid(C_INT));
       setSustainFn = linker.downcallHandle(symbols.find("guitar_engine_set_sustain").orElseThrow(),
           FunctionDescriptor.ofVoid(C_FLOAT));
+      loadIrFn = linker.downcallHandle(symbols.find("guitar_engine_load_cabinet_ir").orElseThrow(),
+          FunctionDescriptor.of(C_BOOL, C_POINTER));
       getTunerHzFn = linker.downcallHandle(symbols.find("guitar_engine_get_tuner_hz").orElseThrow(),
           FunctionDescriptor.of(C_FLOAT));
       setOctaveFn = linker.downcallHandle(symbols.find("guitar_engine_set_octave").orElseThrow(),
@@ -694,6 +698,21 @@ public final class GuitarEngine implements AutoCloseable {
       setSustainFn.invokeExact(multiplier);
     } catch (Throwable t) {
       throw new RuntimeException("guitar_engine_set_sustain failed", t);
+    }
+  }
+
+  /**
+   * Cabinet IR: loads a WAV impulse response that replaces the cabinet
+   * pedal's modeled voicing with true FFT convolution. An empty path
+   * reverts to the modeled cabinet. Returns false when the file is
+   * unreadable or not a parseable WAV.
+   */
+  public boolean loadCabinetIr(java.nio.file.Path irPath) {
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment pathSeg = arena.allocateFrom(irPath == null ? "" : irPath.toString());
+      return (boolean) loadIrFn.invokeExact(pathSeg);
+    } catch (Throwable t) {
+      throw new RuntimeException("guitar_engine_load_cabinet_ir failed", t);
     }
   }
 

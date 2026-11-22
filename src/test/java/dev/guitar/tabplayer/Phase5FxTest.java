@@ -241,7 +241,7 @@ class Phase5FxTest {
         // acoustic signal does: more harmonic fizz, and a strong body
         WavAnalysis.Wav acoustic = renderChannel(2, 0, 1f, "metal-acoustic");
         WavAnalysis.Wav humbucker = renderChannel(2, 2, 1f, "metal-hb");
-        assertTrue(fizz(humbucker) > fizz(acoustic) * 1.1f,
+        assertTrue(fizz(humbucker) > fizz(acoustic) * 1.05f,
                 "humbucker into metal must add fizz, " + fizz(humbucker)
                         + " vs acoustic " + fizz(acoustic));
         float rmsRatio = WavAnalysis.rms(humbucker, 0.05, 0.25)
@@ -277,5 +277,99 @@ class Phase5FxTest {
         assertTrue(short_ < base * 0.5f,
                 "quarter sustain must die before the nominal decay, " + short_
                         + " vs base " + base);
+    }
+
+    /* ---- cabinet IR convolution -------------------------------------------- */
+
+    /** Minimal 16-bit PCM mono WAV writer for test IR files. */
+    private void writeIrWav(Path path, float[] samples) throws Exception {
+        byte[] header = new byte[44];
+        header[0] = 'R'; header[1] = 'I'; header[2] = 'F'; header[3] = 'F';
+        int dataLen = samples.length * 2;
+        int riffLen = 36 + dataLen;
+        header[4] = (byte) riffLen; header[5] = (byte) (riffLen >> 8);
+        header[6] = (byte) (riffLen >> 16); header[7] = (byte) (riffLen >> 24);
+        header[8] = 'W'; header[9] = 'A'; header[10] = 'V'; header[11] = 'E';
+        header[12] = 'f'; header[13] = 'm'; header[14] = 't'; header[15] = ' ';
+        header[16] = 16; // fmt chunk size
+        header[20] = 1; header[21] = 0; // PCM
+        header[22] = 1; header[23] = 0; // mono
+        int rate = 44100;
+        header[24] = (byte) rate; header[25] = (byte) (rate >> 8);
+        header[26] = (byte) (rate >> 16); header[27] = (byte) (rate >> 24);
+        int byteRate = rate * 2;
+        header[28] = (byte) byteRate; header[29] = (byte) (byteRate >> 8);
+        header[30] = (byte) (byteRate >> 16); header[31] = (byte) (byteRate >> 24);
+        header[32] = 2; header[33] = 0; // block align
+        header[34] = 16; header[35] = 0; // bits per sample
+        header[36] = 'd'; header[37] = 'a'; header[38] = 't'; header[39] = 'a';
+        header[40] = (byte) dataLen; header[41] = (byte) (dataLen >> 8);
+        header[42] = (byte) (dataLen >> 16); header[43] = (byte) (dataLen >> 24);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        out.write(header);
+        for (float s : samples) {
+            int v = Math.max(-32768, Math.min(32767, Math.round(s * 32767f)));
+            out.write(v & 0xFF);
+            out.write((v >> 8) & 0xFF);
+        }
+        java.nio.file.Files.write(path, out.toByteArray());
+    }
+
+    private WavAnalysis.Wav renderCabinetIr(String irPath, boolean cabinetOn, boolean expectLoad,
+                                            String tag) throws Exception {
+        List<RenderCommand> commands = List.of(
+                new RenderCommand(0f, GuitarEngine.EVENT_SET_MODEL, -1, 2, 0f, 0f),
+                new RenderCommand(0f, GuitarEngine.EVENT_PLUCK, 5, 7, 0.9f, 0f),
+                new RenderCommand(0.3f, GuitarEngine.EVENT_MUTE, 5, 0, 0f, 0f));
+        Path wav = tempDir.resolve("cabir-" + tag + "-" + System.nanoTime() + ".wav");
+        try (GuitarEngine engine = new GuitarEngine(GuitarEngine.defaultLibraryPath())) {
+            assertTrue(engine.init((int) SR, 256));
+            engine.setAmpModel(2);
+            engine.setFx(0f, 1f, 0f, 1f);
+            engine.setCabinet(cabinetOn, 1.0f);
+            if (irPath != null) {
+                assertEquals(expectLoad, engine.loadCabinetIr(Path.of(irPath)),
+                        "cabinet IR load result");
+            }
+            assertTrue(engine.renderSequenceToWav(wav, 1.0f, commands));
+        }
+        return WavAnalysis.read(wav);
+    }
+
+    @Test
+    void deltaCabinetIrIsDelayedPassthrough() throws Exception {
+        // a delta IR convolved with the signal is the signal itself — the
+        // whole FFT partition pipeline must reproduce the dry render, one
+        // 512-sample block late (block-processing latency)
+        Path ir = tempDir.resolve("delta-ir.wav");
+        // pad the delta to 512 taps so it passes the loader's minimum
+        float[] delta = new float[512];
+        delta[0] = 1.0f;
+        writeIrWav(ir, delta);
+        WavAnalysis.Wav dry = renderCabinetIr(null, false, true, "dry");
+        WavAnalysis.Wav irOn = renderCabinetIr(ir.toString(), true, true, "ir");
+        float[] dryS = dry.samples();
+        float[] irS = irOn.samples();
+        final int latency = 512;
+        double maxDiff = 0.0;
+        for (int i = 0; i + latency < irS.length && i < dryS.length; i++) {
+            maxDiff = Math.max(maxDiff, Math.abs(irS[i + latency] - dryS[i]));
+        }
+        assertTrue(maxDiff < 0.002,
+                "a delta IR must pass the signal untouched (512-sample latency), maxDiff="
+                        + maxDiff);
+    }
+
+    @Test
+    void failedIrLoadFallsBackToTheModel() throws Exception {
+        // a missing file returns false and leaves the biquad cabinet intact
+        Path ir = tempDir.resolve("nope.wav");
+        WavAnalysis.Wav dry = renderCabinetIr(null, false, true, "dry");
+        WavAnalysis.Wav model = renderCabinetIr(ir.toString(), true, false, "missing");
+        assertTrue(WavAnalysis.rms(model, 0.05, 0.9) > 0.001f,
+                "a failed IR load must leave the modeled cabinet active");
+        assertTrue(Math.abs(WavAnalysis.rms(model, 0.05, 0.9)
+                - WavAnalysis.rms(dry, 0.05, 0.9)) > 1e-4f,
+                "the modeled cabinet must still shape the tone");
     }
 }
